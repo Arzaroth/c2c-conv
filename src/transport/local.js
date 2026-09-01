@@ -34,8 +34,11 @@ export class LocalTransport extends EventEmitter {
     this.#token = token
   }
 
+  // A wildcard bind is not an address anyone can open, and browsers refuse
+  // 0.0.0.0 outright. Loopback is the one address such a socket always answers on.
   get url() {
-    return `http://${this.#host}:${this.#port}/?t=${this.#token}`
+    const host = this.#host === '0.0.0.0' || this.#host === '::' ? '127.0.0.1' : this.#host
+    return `http://${host}:${this.#port}/?t=${this.#token}`
   }
 
   get port() {
