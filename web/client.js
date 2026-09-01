@@ -200,6 +200,7 @@ addEventListener('resize', rescale)
 
 const pending = new Map()
 let mode = 'gallery'
+let whiteface = false
 let socket = null
 let retry = 500
 let ended = false
@@ -232,7 +233,7 @@ function renderPending() {
 
     const what = document.createElement('span')
     what.className = 'what'
-    what.textContent = 'waiting for the host'
+    what.textContent = whiteface ? `from ${entry.bozo}` : 'waiting for the host'
 
     const text = document.createElement('span')
     text.textContent = entry.text
@@ -298,7 +299,17 @@ function handle(msg) {
     case 'hoink':
       paneState = msg.state ?? 'unknown'
       if (msg.name) el.who.value = msg.name
+      whiteface = Boolean(msg.whiteface)
+      document.body.classList.toggle('whiteface', whiteface)
+      if (msg.pending) {
+        pending.clear()
+        for (const entry of msg.pending) pending.set(entry.id, entry)
+      }
       setMode(msg.mode)
+      if (whiteface) {
+        el.hint.innerHTML = 'You are the <b>whiteface</b>. You run the ring: release, drop, switch mode.'
+      }
+      renderPending()
       term.resize(msg.cols, msg.rows)
       rescale()
       break
@@ -332,22 +343,12 @@ function handle(msg) {
       el.who.value = msg.name
       break
     case 'pending':
-      pending.set(msg.id, { id: msg.id, text: msg.text })
-      renderPending()
-      break
-    case 'whiteface':
-      whiteface = Boolean(msg.you)
-      document.body.classList.toggle('whiteface', whiteface)
-      el.hint.innerHTML = 'You are the <b>whiteface</b>. You run the ring: release, drop, switch mode.'
-      refreshKeypad()
+    case 'policy:queued':
+      pending.set(msg.id, { id: msg.id, text: msg.text, bozo: msg.bozo })
       renderPending()
       break
     case 'whiteface:refused':
       el.hint.textContent = `Not the whiteface: ${msg.reason ?? 'that is the host\'s to do'}.`
-      break
-    case 'policy:queued':
-      pending.set(msg.id, { id: msg.id, text: msg.text, bozo: msg.bozo })
-      renderPending()
       break
     case 'policy:mode':
       setMode(msg.mode)
@@ -405,8 +406,6 @@ function hoink() {
   if (socket?.readyState !== WebSocket.OPEN) return
   socket.send(JSON.stringify({ type: 'hoink', name, whiteface: whitefaceToken || undefined }))
 }
-
-let whiteface = false
 
 function ask(payload) {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload))

@@ -7,15 +7,13 @@ import { PaneStream } from './panestream.js'
 import { TranscriptStream } from './transcript.js'
 import { Tunnel } from './tunnel.js'
 import { Policy, GALLERY, YOLO, needsWhiteface } from './policy.js'
-import { timingSafeEqualString } from './secret.js'
+import { Whiteface } from './whiteface.js'
 import { LocalTransport } from './transport/local.js'
 import { BigtopTransport } from './transport/bigtop.js'
 import { controlSocket, ensureStateDir, metaFile, paneFile, statusFile } from './paths.js'
 
 const MAX_PANE_BYTES = Number(process.env.C2C_MAX_PANE_BYTES) || 8 * 1024 * 1024
 const MAX_HISTORY = 500
-
-
 
 export class Ringmaster {
   #session
@@ -35,16 +33,12 @@ export class Ringmaster {
   #tunnel = null
   #tunnelUrl = null
   #wantsTunnel = false
-  #startMode = null
-  #whitefaceToken = null
-  #whiteface = null
+  #whiteface
 
   constructor({ session, port, host = '127.0.0.1', token, bigtop, tunnel = false, mode, whiteface }) {
     this.#wantsTunnel = tunnel
-    this.#startMode = mode || null
-    // A separate secret from the bozo token: leaking the share link must not
-    // hand over control of the session with it.
-    this.#whitefaceToken = whiteface || null
+    this.#whiteface = new Whiteface(whiteface)
+    if (mode) this.#policy.setMode(mode)
     this.#session = session
     this.#token = token || randomBytes(16).toString('hex')
 
@@ -88,7 +82,6 @@ export class Ringmaster {
     })
     await this.#pane.start()
 
-    if (this.#startMode) this.#policy.setMode(this.#startMode)
     this.#policy.onEvent((event) => this.#onPolicyEvent(event))
 
     for (const transport of this.#transports) {
@@ -227,7 +220,7 @@ export class Ringmaster {
     return {
       url: this.local.url,
       tunnel,
-      whitefaceUrl: this.#whitefaceToken ? `${reach}&w=${this.#whitefaceToken}` : null,
+      whitefaceUrl: this.#whiteface.enabled ? `${reach}&w=${this.#whiteface.token}` : null,
     }
   }
 
@@ -254,8 +247,7 @@ export class Ringmaster {
     channel.on('text', (raw) => this.#onGuestMessage(bozo, raw))
     channel.on('close', () => {
       this.#bozos.delete(channel.id)
-      if (this.#whiteface === channel.id) {
-        this.#whiteface = null
+      if (this.#whiteface.release(bozo)) {
         this.#notifyHost('c2c: the whiteface left, the role is free again')
       }
       this.#writeStatusLine()
@@ -264,25 +256,6 @@ export class Ringmaster {
 
     // The bozo speaks first, with its name. Answering only once it has hoinked
     // means the host is told who arrived rather than that someone did.
-  }
-
-  #claimWhiteface(bozo, token) {
-    if (!this.#whitefaceToken || !timingSafeEqualString(token, this.#whitefaceToken)) {
-      bozo.channel.sendJson({ type: 'whiteface:refused', reason: 'bad token' })
-      return
-    }
-    // One holder at a time. The token stays valid so a dropped connection can
-    // reclaim the role, but nobody can take it from whoever holds it.
-    if (this.#whiteface && this.#whiteface !== bozo.id && this.#bozos.has(this.#whiteface)) {
-      bozo.channel.sendJson({ type: 'whiteface:refused', reason: 'someone else is the whiteface' })
-      return
-    }
-
-    this.#whiteface = bozo.id
-    bozo.whiteface = true
-    bozo.channel.sendJson({ type: 'whiteface', you: true })
-    this.#notifyHost(`c2c: ${bozo.name} is the whiteface now`)
-    this.#writeStatusLine()
   }
 
   #runWhitefaceAction(msg) {
@@ -303,10 +276,16 @@ export class Ringmaster {
     }
   }
 
-  async #hoink(bozo, name) {
+  // The greeting is also where the whiteface is claimed, so the reply carries
+  // the role and, for the holder, the queue as it stands. A whiteface that
+  // reconnects after messages piled up sees them straight away.
+  async #hoink(bozo, { name, whiteface: token }) {
     if (typeof name === 'string') {
       bozo.name = name.slice(0, 40).replace(/[^\w .-]/g, '') || 'bozo'
     }
+    const claim = token === undefined ? null : this.#whiteface.claim(bozo, token)
+    if (claim?.ok) this.#notifyHost(`c2c: ${bozo.name} is the whiteface now`)
+    const whiteface = this.#whiteface.holds(bozo)
 
     const { cols, rows } = await tmux.paneSize(this.#session)
     bozo.channel.sendJson({
@@ -317,7 +296,12 @@ export class Ringmaster {
       rows,
       bozoId: bozo.id,
       name: bozo.name,
+      whiteface,
+      pending: whiteface ? this.#policy.list() : undefined,
     })
+    if (claim && !claim.ok) {
+      bozo.channel.sendJson({ type: 'whiteface:refused', reason: claim.reason })
+    }
     await this.#sendScreen(bozo.channel)
     if (this.#history.length) {
       bozo.channel.sendJson({ type: 'transcript:history', entries: this.#history })
@@ -335,19 +319,13 @@ export class Ringmaster {
     }
 
     if (msg.type === 'hoink') {
-      this.#hoink(bozo, msg.name)
-      if (msg.whiteface) this.#claimWhiteface(bozo, msg.whiteface)
-      return
-    }
-
-    if (msg.type === 'whiteface') {
-      this.#claimWhiteface(bozo, msg.token)
+      this.#hoink(bozo, msg)
       return
     }
 
     // Everything below is host control, and only the whiteface may ask.
     if (needsWhiteface(msg.type)) {
-      if (this.#whiteface !== bozo.id) {
+      if (!this.#whiteface.holds(bozo)) {
         bozo.channel.sendJson({ type: 'whiteface:refused', action: msg.type })
         return
       }
@@ -374,7 +352,7 @@ export class Ringmaster {
       const result = this.#policy.submitKey({
         key: msg.key,
         bozo: bozo.name,
-        whiteface: this.#whiteface === bozo.id,
+        whiteface: this.#whiteface.holds(bozo),
       })
       if (result.action === 'send') this.#pressKey(result.key)
       else bozo.channel.sendJson({ type: 'key:refused', key: msg.key, reason: result.reason })
@@ -387,7 +365,7 @@ export class Ringmaster {
         this.#inject(result.text)
         bozo.channel.sendJson({ type: 'accepted', text: result.text })
       } else if (result.action === 'queued') {
-        bozo.channel.sendJson({ type: 'pending', id: result.id, text: msg.text })
+        bozo.channel.sendJson({ type: 'pending', id: result.id, text: msg.text, bozo: bozo.name })
       } else if (result.action === 'rejected') {
         bozo.channel.sendJson({ type: 'rejected', reason: result.reason })
       }
@@ -482,7 +460,7 @@ export class Ringmaster {
     // What is waiting goes to the whiteface only. Another bozo's unreleased
     // message is not the rest of the gallery's business, especially one the
     // host is about to drop.
-    if (event.type === 'queued') this.#toWhiteface({ ...event, type: 'policy:queued' })
+    if (event.type === 'queued') this.#whiteface.holder?.channel.sendJson({ ...event, type: 'policy:queued' })
     else this.#broadcastJson({ ...event, type: `policy:${event.type}` })
     this.#writeStatusLine()
   }
@@ -509,11 +487,6 @@ export class Ringmaster {
     try {
       await writeFile(statusFile(this.#session), parts.join(' #[fg=#362c4a]|#[default] ') + ' ')
     } catch {}
-  }
-
-  #toWhiteface(value) {
-    const holder = this.#whiteface && this.#bozos.get(this.#whiteface)
-    if (holder && !holder.channel.closed) holder.channel.sendJson(value)
   }
 
   #broadcastJson(value) {

@@ -374,8 +374,8 @@ async function cmdRingmaster() {
     token: process.env.C2C_TOKEN,
     bigtop: bigtopUrl ? { url: bigtopUrl, room: process.env.C2C_BIGTOP_ROOM } : null,
     tunnel: process.env.C2C_TUNNEL === '1',
-    mode: process.env.C2C_MODE || null,
-    whiteface: process.env.C2C_WHITEFACE || null,
+    mode: process.env.C2C_MODE,
+    whiteface: process.env.C2C_WHITEFACE,
   })
   await ringmaster.start()
   console.log(`[ringmaster] listening on ${ringmaster.url}`)

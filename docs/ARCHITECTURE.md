@@ -303,6 +303,9 @@ whiteface fixes that without moving host control onto the share link.
 - One holder at a time. The token stays valid rather than being consumed, so a
   dropped connection can reclaim the role, but nobody can take it from whoever
   holds it, and it is released when they disconnect.
+- The role is claimed in the HOINK greeting, and the reply carries it along
+  with the queue as it stands, so a whiteface that reconnects sees what piled
+  up while it was away.
 - The gate is `needsWhiteface()` in the ringmaster, not a hidden button. A bozo
   that opens its own socket and asks to approve is refused exactly the same.
 - The pending queue is sent to the whiteface alone. Another bozo's unreleased
