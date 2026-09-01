@@ -57,8 +57,11 @@ the bigtop: uplink connected, a bozo joined over TLS, a message reached the
 session and the pane stream came back. Certificate verification is on and is
 enforced - an untrusted certificate is refused rather than ignored.
 
-**Not** verified: a real HTTP-aware reverse proxy. The test used a TLS
-terminator that pipes TCP, so it does not exercise nginx or Caddy rewriting
-headers, which is exactly where the upgrade gotcha above lives. Treat the two
-configs here as informed starting points, and check for a `101` on the first
-bozo connection.
+A websocket upgrade has since been carried end to end through a real
+HTTP-aware proxy - Cloudflare's edge, via `c2c host --tunnel` - so the protocol
+survives header rewriting rather than only a TCP pipe.
+
+Still untested specifically: **these two config files.** nginx and Caddy are
+not installed on the machine this was built on, so the directives below are
+informed by the failure mode rather than proven against it. Check for a `101`
+on the first bozo connection.

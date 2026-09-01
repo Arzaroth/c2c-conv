@@ -67,11 +67,15 @@ distribution is the better source. But if you already have the npm one, c2c uses
 it: binary resolution checks `$C2C_CLOUDFLARED`, then `node_modules/.bin/`, then
 `~/.cloudflared/bin/`, then PATH. No reason to make you install it twice.
 
-**Tested with a stub, not the real binary.** cloudflared was not installed on
-the machine this was built on, so the announcement parsing, the failure paths
-and the lifecycle are covered by a fake that prints the same banner. A real
-tunnel has never been established. Check the URL actually loads before trusting
-it with anything.
+**Verified against a real tunnel.** cloudflared 2026.8.2 established a quick
+tunnel, a bozo connected over `wss://` to the public URL, its message reached
+the session and the pane stream came back. The tunnel process died with the
+session, leaving nothing listening.
+
+That also settles the question the nginx and Caddy configs could not: **the
+websocket upgrade survives a real HTTP-aware reverse proxy.** Cloudflare's edge
+is one, and it rewrites headers like any other. The earlier TLS test only piped
+TCP, so it never exercised that.
 
 ## Rung 4: the bigtop
 

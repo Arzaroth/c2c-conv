@@ -135,9 +135,16 @@ async function cmdHost({ opts, passthrough }) {
     process.exit(1)
   }
 
+  const ready = opts.tunnel ? await waitForTunnel(opts.session) : meta
+
   console.log(`c2c-conv session "${opts.session}" is live`)
   console.log('')
-  printInvite(meta, opts)
+  if (opts.tunnel && !ready.tunnel) {
+    console.log('  note: cloudflared has not reported a URL yet.')
+    console.log('        run c2c invite in a moment to get the link.')
+    console.log('')
+  }
+  printInvite(ready, opts)
   console.log(`  mode        gallery (bozos need your approval to send)`)
   console.log('')
   console.log('  in the session, without leaving it:')
@@ -297,6 +304,18 @@ async function waitForReady(session, tries = 40) {
     await new Promise((r) => setTimeout(r, 250))
   }
   return state
+}
+
+// cloudflared answers in its own time, so this is waited for separately rather
+// than holding up a session that is already usable.
+async function waitForTunnel(session, tries = 60) {
+  let meta = await readMeta(session)
+  for (let i = 0; i < tries; i++) {
+    if (meta?.tunnel) return meta
+    await new Promise((r) => setTimeout(r, 500))
+    meta = (await readMeta(session)) ?? meta
+  }
+  return meta
 }
 
 async function waitForRingmaster(session, tries = 60) {

@@ -101,26 +101,33 @@ export class Ringmaster {
     // cloudflared connects out, so the ringmaster stays on loopback and there is
     // still nothing to forward. The tunnel is a child of this process so it dies
     // with the session rather than outliving it as a public URL.
+    // Never awaited: cloudflared takes ten seconds or so to establish, and
+    // blocking on it delays the metadata file that tells `c2c host` the session
+    // is up. It concluded the ringmaster had failed and killed the session.
     if (this.#wantsTunnel) {
       this.#tunnel = new Tunnel({ port: this.local.port })
       this.#tunnel.on('closed', () => {
         this.#tunnelUrl = null
         console.log('[tunnel] cloudflared exited')
       })
-      try {
-        this.#tunnelUrl = await this.#tunnel.start()
-        console.log(`[tunnel] ${this.#tunnelUrl}`)
-      } catch (err) {
-        console.error(`[tunnel] ${err.message}`)
-        this.#tunnel = null
-      }
+      this.#tunnel
+        .start()
+        .then(async (url) => {
+          this.#tunnelUrl = url
+          console.log(`[tunnel] ${url}`)
+          await this.#writeMeta()
+        })
+        .catch((err) => {
+          console.error(`[tunnel] ${err.message}`)
+          this.#tunnel = null
+        })
     }
 
     this.#watchPaneState()
     await this.#writeStatusLine()
 
     await this.#startControl()
-    await writeFile(metaFile(this.#session), JSON.stringify(this.#meta(), null, 2))
+    await this.#writeMeta()
   }
 
   announce(text) {
@@ -200,6 +207,10 @@ export class Ringmaster {
     this.#pane.rewind()
     await tmux.startPipe(this.#session, file)
     await this.#reseed()
+  }
+
+  async #writeMeta() {
+    await writeFile(metaFile(this.#session), JSON.stringify(this.#meta(), null, 2))
   }
 
   #meta() {
