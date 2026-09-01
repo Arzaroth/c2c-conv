@@ -247,11 +247,21 @@ export class Relay {
   // behind the last one. Keys deliberately skip this queue: they are single
   // atomic keystrokes and should not wait out a text injection's timeout.
   #inject(text) {
-    this.#writes = this.#writes.then(() => this.#injectNow(text)).catch(() => false)
+    this.#writes = this.#writes
+      .then(() => this.#injectNow(text))
+      .catch((err) => {
+        // A guest message disappearing without a trace is the worst possible
+        // failure here, so a broken write is loud on both sides.
+        console.error(`[inject] failed: ${err?.message ?? err}`)
+        this.#notifyHost(`c2c: FAILED to deliver a guest message - ${err?.message ?? err}`)
+        this.#broadcastJson({ type: 'policy:held', state: 'error', text })
+        return false
+      })
     return this.#writes
   }
 
   async #injectNow(text) {
+    console.log(`[inject] start: ${JSON.stringify(text.slice(0, 40))}`)
     const state = await tmux.waitForPrompt(this.#session)
     if (state !== 'prompt') return this.#hold(state, text)
 
@@ -261,6 +271,7 @@ export class Relay {
 
     await tmux.submit(this.#session, text)
     await this.#settle()
+    console.log('[inject] delivered')
     return true
   }
 
@@ -285,9 +296,12 @@ export class Relay {
   }
 
   #hold(reason, text) {
-    const detail = reason === 'draft'
-      ? 'you have an unsent draft in the prompt box'
-      : `pane is ${reason}`
+    const detail = {
+      draft: 'you have an unsent draft in the prompt box',
+      'copy-mode': 'the pane is in tmux copy mode - press q to leave it',
+      error: 'the write failed',
+    }[reason] ?? `pane is ${reason}`
+    console.log(`[inject] held: ${reason}`)
     this.#notifyHost(`c2c: HELD a guest message, ${detail}`)
     this.#broadcastJson({ type: 'policy:held', state: reason, text })
     return false

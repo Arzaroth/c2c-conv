@@ -178,6 +178,33 @@ as a phantom draft. This cost two wrong fixes before the cause was clear.
 What remains unhandled is the host starting to type in the same instant an
 injection lands. That needs a lock the TUI does not offer.
 
+## The tmux server is isolated
+
+The c2c server starts with `-f /dev/null`, so the host's `~/.tmux.conf` is not
+loaded. That is deliberate: otherwise the host's prefix, key tables, status line
+and plugins decide what c2c's documented keys do. A shared session has to behave
+the same on everyone's machine, so **the prefix inside a c2c session is always
+`C-b`**, whatever the host uses elsewhere.
+
+## Never let run-shell print
+
+The host bindings shell out with `>/dev/null 2>&1`, and that redirect is load
+bearing. tmux opens `run-shell` output in a **view-mode pane**, which takes the
+pane away from claude and turns it into a copy-mode buffer. Pressing
+`prefix + a` therefore hijacked the session, because `c2c ctl approve-next`
+prints its JSON reply.
+
+The failure that followed was worse than a cosmetic one. With the pane in
+copy-mode, the injected guest text was read as copy-mode *keystrokes*: the `t`
+in "nothing" hit copy-mode's `t` binding, which opens a `(jump to forward)`
+command prompt, and `send-keys` then blocked forever feeding that prompt. One
+hung call wedged the write queue for the rest of the session.
+
+Three things now prevent it: the bindings are silent, `paneState` reports
+`copy-mode` whenever `pane_in_mode` is set so nothing is ever injected into a
+mode, and every tmux call has a 10s timeout so no single hung command can wedge
+the queue.
+
 ## Host controls
 
 The host drives everything from inside the session: `prefix + a` releases the

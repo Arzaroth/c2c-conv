@@ -5,8 +5,19 @@ const run = promisify(execFile)
 
 const SERVER = 'c2c'
 
+// The c2c server starts with no config at all. Loading the host's ~/.tmux.conf
+// would let their prefix, key tables, status bar and plugins decide what c2c's
+// documented keys do, and would fight the status line. A shared session has to
+// behave the same way on everyone's machine, so the prefix here is always the
+// tmux default regardless of what the host uses elsewhere.
+// The timeout matters: send-keys blocks indefinitely if the pane is sitting at
+// a tmux command prompt, and a hung call would wedge the write queue for the
+// rest of the session.
 function tmux(args) {
-  return run('tmux', ['-L', SERVER, ...args], { maxBuffer: 16 * 1024 * 1024 })
+  return run('tmux', ['-L', SERVER, '-f', '/dev/null', ...args], {
+    maxBuffer: 16 * 1024 * 1024,
+    timeout: 10000,
+  })
 }
 
 export async function hasSession(name) {
@@ -33,7 +44,10 @@ export async function newSession({ name, cwd, command, cols = 200, rows = 50 }) 
 // out to the CLI every couple of seconds.
 export async function configureHost(name, { node, cli, status }) {
   const quote = (value) => `'${String(value).replace(/'/g, `'\\''`)}'`
-  const run = (args) => `${quote(node)} ${quote(cli)} ${args} -s ${quote(name)}`
+  // Output from run-shell is opened in a view-mode pane, which hijacks the
+  // session: the pane stops being claude and starts interpreting keystrokes as
+  // copy-mode commands. The bindings have to be completely silent.
+  const run = (args) => `${quote(node)} ${quote(cli)} ${args} -s ${quote(name)} >/dev/null 2>&1`
 
   await tmux(['set-option', '-t', name, 'status', 'on'])
   await tmux(['set-option', '-t', name, 'status-interval', '2'])
@@ -133,8 +147,21 @@ export function classifyScreen(screen) {
   return 'unknown'
 }
 
+export async function paneInMode(name) {
+  try {
+    const { stdout } = await tmux(['display-message', '-p', '-t', name, '#{pane_in_mode}'])
+    return stdout.trim() === '1'
+  } catch {
+    return false
+  }
+}
+
 export async function paneState(name) {
   if (!(await paneAlive(name))) return 'dead'
+  // In copy or view mode the pane is no longer claude's input: sent text is
+  // read as copy-mode commands, where a stray "t" or "/" opens a tmux prompt
+  // that swallows the rest and blocks send-keys forever.
+  if (await paneInMode(name)) return 'copy-mode'
   return classifyScreen(await capturePlain(name))
 }
 
@@ -188,5 +215,5 @@ export async function stopPipe(name) {
 }
 
 export function attachArgs(name) {
-  return ['-L', SERVER, 'attach-session', '-t', name]
+  return ['-L', SERVER, '-f', '/dev/null', 'attach-session', '-t', name]
 }

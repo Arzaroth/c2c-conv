@@ -111,7 +111,9 @@ safe. Elevate for people you would hand your actual keyboard to.
 | `c2c stop [-s NAME]` | tear it down |
 | `c2c broker [-p PORT] [--bind ADDR]` | run a rendezvous broker |
 
-Runs on its own tmux server (`-L c2c`), so it will not touch your existing tmux.
+Runs on its own tmux server (`-L c2c`) with a clean config, so it will not touch
+your existing tmux - and the prefix inside a c2c session is always `C-b`, even if
+you use something else in your own setup.
 
 ## History
 
@@ -133,6 +135,8 @@ them, and you get a tmux notice saying which:
   guest's words into your half-typed line
 - **the pane is a dialog**, so the text would go nowhere and the trailing Enter
   would confirm whatever is highlighted
+- **the pane is in tmux copy mode**, where text is read as copy-mode commands
+  rather than typed into claude (press `q` to leave it)
 
 Clear or send your draft, or answer the dialog, and the guest can resend.
 
