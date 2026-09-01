@@ -3,7 +3,7 @@ import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { dirname, extname, join, normalize } from 'node:path'
+import { dirname, extname, join, resolve, sep } from 'node:path'
 
 import { handshake } from '../src/ws.js'
 import { timingSafeEqualString } from '../src/secret.js'
@@ -19,6 +19,25 @@ const MIME = {
 
 const MAX_GUESTS = 16
 const HEARTBEAT_MS = 15000
+
+// A broker is meant to sit on a public host, where anything unbounded is
+// somebody else's memory to grow. Claiming a room costs nothing, so the number
+// of them has to be capped.
+const MAX_ROOMS = 64
+const MAX_ROOM_NAME = 64
+const MIN_TOKEN = 8
+
+const ROOM_NAME = /^[\w.-]+$/
+
+function validRoom(room) {
+  return typeof room === 'string' && room.length <= MAX_ROOM_NAME && ROOM_NAME.test(room)
+}
+
+// A room is only as private as its token, and the broker is the one place that
+// can insist the host picked a real one.
+function validToken(token) {
+  return typeof token === 'string' && token.length >= MIN_TOKEN && token.length <= 256
+}
 
 // Without this a half-open connection keeps a room name claimed forever: the
 // host is gone but the socket never errors, so every later host gets refused.
@@ -81,12 +100,16 @@ export class Broker {
     }
 
     // /r/<room> is the guest entry point; everything else is a static asset.
-    const file = url.pathname.startsWith('/r/')
-      ? 'index.html'
-      : normalize(url.pathname === '/' ? 'index.html' : url.pathname.slice(1)).replace(/^(\.\.[/\\])+/, '')
+    const file = url.pathname.startsWith('/r/') ? 'index.html' : url.pathname.slice(1) || 'index.html'
+    const target = resolvePublic(file)
+    if (!target) {
+      res.writeHead(403, { 'content-type': 'text/plain' })
+      res.end('forbidden\n')
+      return
+    }
 
     try {
-      const body = await readFile(join(WEB_ROOT, file))
+      const body = await readFile(target)
       res.writeHead(200, {
         'content-type': MIME[extname(file)] || 'application/octet-stream',
         'cache-control': 'no-cache, no-store, must-revalidate',
@@ -104,6 +127,8 @@ export class Broker {
     const token = url.searchParams.get('t')
 
     if (!room || !token) return reject(socket, 400, 'room and token required')
+    if (!validRoom(room)) return reject(socket, 400, 'bad room name')
+    if (!validToken(token)) return reject(socket, 400, 'token too short')
 
     if (url.pathname === '/uplink') return this.#acceptHost(req, socket, room, token)
     if (url.pathname === '/guest') return this.#acceptGuest(req, socket, room, token)
@@ -120,6 +145,9 @@ export class Broker {
     }
     if (existing && !timingSafeEqualString(token, existing.token)) {
       return reject(socket, 401, 'bad token')
+    }
+    if (!existing && this.#rooms.size >= MAX_ROOMS) {
+      return reject(socket, 503, 'too many rooms')
     }
 
     const ws = handshake(req, socket)
@@ -198,6 +226,15 @@ export class Broker {
       else if (msg.payload !== undefined) guest.sendJson(msg.payload)
     }
   }
+}
+
+// Stripping "../" prefixes is guesswork. Resolve the path and check it is still
+// inside the web root, which is the only version that is actually provable.
+export function resolvePublic(file, root = WEB_ROOT) {
+  const target = resolve(root, '.' + (file.startsWith('/') ? file : `/${file}`))
+  const base = resolve(root)
+  if (target !== base && !target.startsWith(base + sep)) return null
+  return target
 }
 
 function reject(socket, code, message) {

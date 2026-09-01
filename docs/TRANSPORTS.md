@@ -102,6 +102,26 @@ on every restart. Pass `--token` to keep a room's link stable:
 c2c host --broker wss://broker.example.com --room standup --token <secret>
 ```
 
+### Limits
+
+A broker is meant to sit on a public host, so nothing it accepts is unbounded:
+
+| | |
+|---|---|
+| rooms | 64 |
+| guests per room | 16 |
+| room name | 64 chars, `[\w.-]` only |
+| token | 8 to 256 chars |
+
+Claiming a room costs a stranger nothing, so the room count is capped; without
+that, room creation is somebody else's memory to grow. The token minimum is
+enforced here because the broker is the one place that can insist the host
+picked a real secret - `c2c host` refuses a short `--token` for the same reason.
+
+Static files resolve against the web root and are rejected unless the resolved
+path is still inside it. Stripping `../` prefixes is guesswork; containment is
+the only version that is provable.
+
 ### Deploying
 
 Zero dependencies, so it is a single file plus `src/ws.js` and `web/`:

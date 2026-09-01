@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { connect as netConnect } from 'node:net'
 import { randomBytes } from 'node:crypto'
 
-import { Broker } from '../broker/server.js'
+import { Broker, resolvePublic } from '../broker/server.js'
 
 let broker
 let base
@@ -51,12 +51,12 @@ function open(url, { binary = false } = {}) {
 }
 
 test('a guest cannot join a room with no host', async () => {
-  await assert.rejects(() => open(`${base}/guest?room=empty&t=secret`))
+  await assert.rejects(() => open(`${base}/guest?room=empty&t=secret-token`))
 })
 
 test('a host claims a room and sees the guest join', async () => {
-  const host = await open(`${base}/uplink?room=alpha&t=secret`)
-  const guest = await open(`${base}/guest?room=alpha&t=secret`)
+  const host = await open(`${base}/uplink?room=alpha&t=secret-token`)
+  const guest = await open(`${base}/guest?room=alpha&t=secret-token`)
 
   const join = await host.next()
   assert.equal(join.event, 'join')
@@ -67,8 +67,8 @@ test('a host claims a room and sees the guest join', async () => {
 })
 
 test('guest messages arrive enveloped, host replies arrive verbatim', async () => {
-  const host = await open(`${base}/uplink?room=beta&t=secret`)
-  const guest = await open(`${base}/guest?room=beta&t=secret`)
+  const host = await open(`${base}/uplink?room=beta&t=secret-token`)
+  const guest = await open(`${base}/guest?room=beta&t=secret-token`)
 
   const join = await host.next()
   assert.equal(join.event, 'join')
@@ -88,9 +88,9 @@ test('guest messages arrive enveloped, host replies arrive verbatim', async () =
 })
 
 test('a host binary frame fans out to every guest', async () => {
-  const host = await open(`${base}/uplink?room=gamma&t=secret`)
-  const one = await open(`${base}/guest?room=gamma&t=secret`, { binary: true })
-  const two = await open(`${base}/guest?room=gamma&t=secret`, { binary: true })
+  const host = await open(`${base}/uplink?room=gamma&t=secret-token`)
+  const one = await open(`${base}/guest?room=gamma&t=secret-token`, { binary: true })
+  const two = await open(`${base}/guest?room=gamma&t=secret-token`, { binary: true })
 
   await host.next()
   await host.next()
@@ -108,9 +108,9 @@ test('a host binary frame fans out to every guest', async () => {
 })
 
 test('a broadcast reaches every guest, a targeted message only one', async () => {
-  const host = await open(`${base}/uplink?room=delta&t=secret`)
-  const one = await open(`${base}/guest?room=delta&t=secret`)
-  const two = await open(`${base}/guest?room=delta&t=secret`)
+  const host = await open(`${base}/uplink?room=delta&t=secret-token`)
+  const one = await open(`${base}/guest?room=delta&t=secret-token`)
+  const two = await open(`${base}/guest?room=delta&t=secret-token`)
 
   const first = (await host.next()).from
   await host.next()
@@ -128,14 +128,14 @@ test('a broadcast reaches every guest, a targeted message only one', async () =>
 })
 
 test('a guest with the wrong token is refused', async () => {
-  const host = await open(`${base}/uplink?room=epsilon&t=secret`)
-  await assert.rejects(() => open(`${base}/guest?room=epsilon&t=wrong`))
+  const host = await open(`${base}/uplink?room=epsilon&t=secret-token`)
+  await assert.rejects(() => open(`${base}/guest?room=epsilon&t=wrong-token`))
   host.close()
 })
 
 test('a second host cannot take over a claimed room', async () => {
-  const host = await open(`${base}/uplink?room=zeta&t=secret`)
-  await assert.rejects(() => open(`${base}/uplink?room=zeta&t=secret`))
+  const host = await open(`${base}/uplink?room=zeta&t=secret-token`)
+  await assert.rejects(() => open(`${base}/uplink?room=zeta&t=secret-token`))
   host.close()
 })
 
@@ -163,7 +163,7 @@ test('a room is released when its host stops answering heartbeats', async () => 
   const quick = new Broker({ heartbeatMs: 60 })
   const address = await quick.listen(0, '127.0.0.1')
 
-  const socket = await silentPeer(address.port, '/uplink?room=theta&t=secret')
+  const socket = await silentPeer(address.port, '/uplink?room=theta&t=secret-token')
   assert.equal(quick.rooms.size, 1)
 
   await new Promise((r) => setTimeout(r, 500))
@@ -192,8 +192,8 @@ test('a new host can claim a room once the stale one is reaped', async () => {
 })
 
 test('guests are dropped when the host disconnects', async () => {
-  const host = await open(`${base}/uplink?room=eta&t=secret`)
-  const guest = await open(`${base}/guest?room=eta&t=secret`)
+  const host = await open(`${base}/uplink?room=eta&t=secret-token`)
+  const guest = await open(`${base}/guest?room=eta&t=secret-token`)
   await host.next()
 
   const closed = new Promise((resolve) => guest.ws.addEventListener('close', resolve))
@@ -201,5 +201,51 @@ test('guests are dropped when the host disconnects', async () => {
   assert.deepEqual(await guest.next(), { type: 'notice', text: 'host disconnected' })
   await closed
 
-  await assert.rejects(() => open(`${base}/guest?room=eta&t=secret`))
+  await assert.rejects(() => open(`${base}/guest?room=eta&t=secret-token`))
+})
+
+test('static paths cannot escape the web root', () => {
+  const root = '/srv/web'
+  for (const attempt of ['../../etc/passwd', '..', '../web/../../../etc/shadow', '../']) {
+    assert.equal(resolvePublic(attempt, root), null, attempt)
+  }
+})
+
+test('ordinary asset paths resolve inside the web root', () => {
+  const root = '/srv/web'
+  assert.equal(resolvePublic('client.js', root), '/srv/web/client.js')
+  assert.equal(resolvePublic('/index.html', root), '/srv/web/index.html')
+  assert.equal(resolvePublic('a/../client.js', root), '/srv/web/client.js')
+})
+
+test('a room name with path characters is refused', async () => {
+  await assert.rejects(() => open(`${base}/uplink?room=${encodeURIComponent('../etc')}&t=secret-token`))
+  await assert.rejects(() => open(`${base}/uplink?room=${encodeURIComponent('a b')}&t=secret-token`))
+})
+
+test('an over-long room name is refused', async () => {
+  await assert.rejects(() => open(`${base}/uplink?room=${'r'.repeat(65)}&t=secret-token`))
+})
+
+// The room is only as private as its token, and the broker is the one place
+// that can insist the host picked a real one.
+test('a short token is refused outright', async () => {
+  await assert.rejects(() => open(`${base}/uplink?room=shorty&t=abc`))
+})
+
+test('claiming rooms is capped', async () => {
+  const capped = new Broker()
+  const address = await capped.listen(0, '127.0.0.1')
+  const url = `ws://127.0.0.1:${address.port}`
+
+  const hosts = []
+  for (let i = 0; i < 64; i++) {
+    hosts.push(await open(`${url}/uplink?room=room${i}&t=secret-token`))
+  }
+  assert.equal(capped.rooms.size, 64)
+
+  await assert.rejects(() => open(`${url}/uplink?room=one-too-many&t=secret-token`))
+
+  for (const host of hosts) host.close()
+  capped.close()
 })

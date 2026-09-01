@@ -75,6 +75,13 @@ async function cmdHost({ opts, passthrough }) {
     process.exit(1)
   }
 
+  // A broker refuses a short token, and the uplink would just retry forever
+  // with nothing on screen explaining why.
+  if (opts.token && opts.token.length < 8) {
+    console.error('--token must be at least 8 characters: it is the only thing protecting the session')
+    process.exit(1)
+  }
+
   const claudeArgs = (passthrough ?? []).map(shellQuote).join(' ')
   const command = claudeArgs ? `claude ${claudeArgs}` : 'claude'
 
