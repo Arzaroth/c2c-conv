@@ -1,0 +1,19 @@
+# Caddy needs no websocket-specific configuration: reverse_proxy passes an
+# Upgrade through on its own. The things that actually matter for c2c are the
+# timeouts, because the uplink and every guest connection are long-lived.
+
+broker.example.com {
+	encode gzip
+
+	# The broker pings every 15s and drops a peer that misses a pong, so it
+	# notices a dead connection on its own. The proxy must not cut a healthy
+	# idle one first: a guest watching without typing sends nothing for
+	# minutes at a time.
+	reverse_proxy 127.0.0.1:8080 {
+		flush_interval -1
+		transport http {
+			read_timeout 0
+			write_timeout 0
+		}
+	}
+}

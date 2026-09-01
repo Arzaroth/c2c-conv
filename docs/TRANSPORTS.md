@@ -134,3 +134,12 @@ node broker/server.js --port 8080 --bind 0.0.0.0
 in `--broker`; the guest client picks `wss` automatically when the page is served
 over https. The broker sees all pane bytes in cleartext, so it should be a machine
 you control, not a shared one.
+
+A systemd unit and Caddy/nginx configs are in [../deploy](../deploy), along with
+the two things a proxy has to get right for websockets and a note on which parts
+of this have actually been tested.
+
+When the uplink cannot connect, a failed websocket in node reports a bare
+`TypeError` with no reason at all, so the relay probes `/healthz` once per outage
+and logs what it finds - `ECONNREFUSED`, `UNABLE_TO_GET_ISSUER_CERT_LOCALLY`,
+`ENOTFOUND` - rather than leaving a bare close code.

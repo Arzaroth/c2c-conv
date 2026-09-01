@@ -1,0 +1,35 @@
+[Unit]
+Description=c2c-conv rendezvous broker
+Documentation=https://github.com/arzaroth/c2c-conv/blob/main/docs/TRANSPORTS.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=c2c
+Group=c2c
+WorkingDirectory=/opt/c2c-conv
+ExecStart=/usr/bin/node /opt/c2c-conv/broker/server.js --port 8080 --bind 127.0.0.1
+Restart=always
+RestartSec=2
+
+# Binds loopback only: TLS termination belongs to the reverse proxy in front.
+# Nothing here needs to reach the network on its own.
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+ReadWritePaths=
+
+[Install]
+WantedBy=multi-user.target

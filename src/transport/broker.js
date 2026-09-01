@@ -40,6 +40,7 @@ export class BrokerTransport extends EventEmitter {
   #socket = null
   #guests = new Map()
   #backoff = BACKOFF_MIN
+  #diagnosed = false
   #stopped = false
   #timer = null
 
@@ -114,6 +115,7 @@ export class BrokerTransport extends EventEmitter {
 
     socket.addEventListener('open', () => {
       this.#backoff = BACKOFF_MIN
+      this.#diagnosed = false
       this.emit('status', { connected: true, room: this.#room })
     })
 
@@ -132,9 +134,12 @@ export class BrokerTransport extends EventEmitter {
       for (const guest of this.#guests.values()) guest.close()
       this.#guests.clear()
       this.emit('status', { connected: false, code: event.code, reason: event.reason })
+      this.#diagnose()
       this.#retry()
     })
 
+    // Nothing useful here: a failed WebSocket hands back a bare TypeError with
+    // no message and no cause, so the reason is diagnosed separately below.
     socket.addEventListener('error', () => {})
   }
 
@@ -157,6 +162,34 @@ export class BrokerTransport extends EventEmitter {
     if (msg.event === 'message') {
       const guest = this.#guests.get(msg.from)
       if (guest) guest.emit('text', JSON.stringify(msg.payload))
+    }
+  }
+
+  // A websocket failure carries no reason, but an ordinary request to the same
+  // origin does, so one probe turns "code 1006" into something a deployer can
+  // act on: a bad certificate, a refused connection, an unknown host. Runs once
+  // per outage rather than on every retry.
+  async #diagnose() {
+    if (this.#diagnosed || this.#stopped) return
+    this.#diagnosed = true
+
+    const origin = this.#url.replace(/^ws/, 'http')
+    try {
+      const response = await fetch(`${origin}/healthz`, { signal: AbortSignal.timeout(5000) })
+      this.emit('status', {
+        connected: false,
+        hint: response.ok
+          ? 'broker is reachable but refused the uplink - check the room name and token'
+          : `broker answered ${response.status} on /healthz`,
+      })
+    } catch (err) {
+      // fetch reports "fetch failed"; the actual reason (ECONNREFUSED, a TLS
+      // error code, ENOTFOUND) is one level down in cause.
+      const cause = err.cause?.code ?? err.cause?.message
+      this.emit('status', {
+        connected: false,
+        hint: `cannot reach broker: ${cause ?? err.message}`,
+      })
     }
   }
 
