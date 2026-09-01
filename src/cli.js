@@ -115,6 +115,9 @@ async function cmdHost({ opts, passthrough }) {
     status: statusFile(opts.session),
   })
   const token = opts.token || randomBytes(16).toString('hex')
+  // Detached sessions have nobody at the prefix keys, so the host needs a way
+  // to hold the gate from the browser instead.
+  const whiteface = opts.attach ? '' : randomBytes(16).toString('hex')
   const log = openSync(join(dir, 'ringmaster.log'), 'a')
 
   const child = spawn(process.execPath, [SELF, '__ringmaster'], {
@@ -130,6 +133,7 @@ async function cmdHost({ opts, passthrough }) {
       C2C_BIGTOP_ROOM: opts.room ?? opts.session,
       C2C_TUNNEL: opts.tunnel ? '1' : '',
       C2C_MODE: opts.mode ?? '',
+      C2C_WHITEFACE: whiteface,
     },
   })
   child.unref()
@@ -157,6 +161,13 @@ async function cmdHost({ opts, passthrough }) {
       : '  mode        gallery (bozos need your approval to send)'
   )
   console.log('')
+  if (meta.whiteface) {
+    console.log('  your own link, which makes you the whiteface (keep it to yourself):')
+    console.log(`    ${meta.whitefaceUrl}`)
+    console.log('    it gives you approve, deny and the mode switch in the browser')
+    console.log('')
+  }
+
   console.log('  in the session, without leaving it:')
   console.log('    prefix + a  release the next waiting message')
   console.log('    prefix + d  drop it')
@@ -164,12 +175,6 @@ async function cmdHost({ opts, passthrough }) {
   console.log('  the status bar shows mode, bozos, and what is waiting.')
   console.log('')
 
-  if (opts.mode !== 'yolo' && !opts.attach) {
-    console.log('note: detached and in gallery. The prefix keys need an attached')
-    console.log('      terminal, so release messages with c2c ctl approve-next,')
-    console.log('      or start with --yolo for a web-only session.')
-    console.log('')
-  }
 
   if (opts.mode === 'yolo' && !opts.attach) {
     console.log('warning: headless and in yolo. Nobody is watching the pane, and any bozo')
@@ -365,6 +370,7 @@ async function cmdRingmaster() {
     bigtop: bigtopUrl ? { url: bigtopUrl, room: process.env.C2C_BIGTOP_ROOM } : null,
     tunnel: process.env.C2C_TUNNEL === '1',
     mode: process.env.C2C_MODE || null,
+    whiteface: process.env.C2C_WHITEFACE || null,
   })
   await ringmaster.start()
   console.log(`[ringmaster] listening on ${ringmaster.url}`)

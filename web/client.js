@@ -1,4 +1,7 @@
-const token = new URLSearchParams(location.search).get('t') || ''
+const params = new URLSearchParams(location.search)
+const token = params.get('t') || ''
+// Presenting this makes you the whiteface: the clown who runs the ring.
+const whitefaceToken = params.get('w') || ''
 
 const el = {
   mode: document.getElementById('mode'),
@@ -81,6 +84,10 @@ function renderHistory() {
   for (const entry of history) el.historyList.appendChild(turnElement(entry))
 }
 
+document.getElementById('mode').addEventListener('click', () => {
+  if (whiteface) ask({ type: 'mode', mode: 'toggle' })
+})
+
 el.historyToggle.addEventListener('click', () => {
   historyOpen = !historyOpen
   el.history.hidden = !historyOpen
@@ -101,6 +108,8 @@ function refreshKeypad() {
   el.keypad.hidden = paneState !== 'dialog'
   const usable = mode === 'yolo'
   for (const button of el.keypad.querySelectorAll('button')) button.disabled = !usable
+  const canPress = mode === 'yolo' || whiteface
+  for (const button of el.keypad.querySelectorAll('button')) button.disabled = !canPress
   el.keypad.querySelector('.keypad-label').textContent = usable
     ? '🤡 the session is asking'
     : '🤡 the session is asking - only the host can answer'
@@ -231,6 +240,21 @@ function renderPending() {
     text.textContent = entry.text
 
     row.append(num, what, text)
+
+    if (whiteface) {
+      const spacer = document.createElement('span')
+      spacer.style.flex = '1'
+      const release = document.createElement('button')
+      release.className = 'ring-btn go'
+      release.textContent = 'release'
+      release.onclick = () => ask({ type: 'approve', id: entry.id })
+      const drop = document.createElement('button')
+      drop.className = 'ring-btn'
+      drop.textContent = 'drop'
+      drop.onclick = () => ask({ type: 'deny', id: entry.id })
+      row.append(spacer, release, drop)
+    }
+
     el.pending.appendChild(row)
   }
 }
@@ -313,6 +337,20 @@ function handle(msg) {
       pending.set(msg.id, { id: msg.id, text: msg.text })
       renderPending()
       break
+    case 'whiteface':
+      whiteface = Boolean(msg.you)
+      document.body.classList.toggle('whiteface', whiteface)
+      el.hint.innerHTML = 'You are the <b>whiteface</b>. You run the ring: release, drop, switch mode.'
+      refreshKeypad()
+      renderPending()
+      break
+    case 'whiteface:refused':
+      el.hint.textContent = `Not the whiteface: ${msg.reason ?? 'that is the host\'s to do'}.`
+      break
+    case 'policy:queued':
+      pending.set(msg.id, { id: msg.id, text: msg.text, bozo: msg.bozo })
+      renderPending()
+      break
     case 'policy:mode':
       setMode(msg.mode)
       break
@@ -367,7 +405,13 @@ el.who.value = name
 // back with the mode, the pane size and the current screen.
 function hoink() {
   if (socket?.readyState !== WebSocket.OPEN) return
-  socket.send(JSON.stringify({ type: 'hoink', name }))
+  socket.send(JSON.stringify({ type: 'hoink', name, whiteface: whitefaceToken || undefined }))
+}
+
+let whiteface = false
+
+function ask(payload) {
+  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload))
 }
 
 function announce() {

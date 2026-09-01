@@ -6,13 +6,16 @@ import * as tmux from './tmux.js'
 import { PaneStream } from './panestream.js'
 import { TranscriptStream } from './transcript.js'
 import { Tunnel } from './tunnel.js'
-import { Policy, GALLERY, YOLO } from './policy.js'
+import { Policy, GALLERY, YOLO, needsWhiteface } from './policy.js'
+import { timingSafeEqualString } from './secret.js'
 import { LocalTransport } from './transport/local.js'
 import { BigtopTransport } from './transport/bigtop.js'
 import { controlSocket, ensureStateDir, metaFile, paneFile, statusFile } from './paths.js'
 
 const MAX_PANE_BYTES = Number(process.env.C2C_MAX_PANE_BYTES) || 8 * 1024 * 1024
 const MAX_HISTORY = 500
+
+
 
 export class Ringmaster {
   #session
@@ -33,10 +36,15 @@ export class Ringmaster {
   #tunnelUrl = null
   #wantsTunnel = false
   #startMode = null
+  #whitefaceToken = null
+  #whiteface = null
 
-  constructor({ session, port, host = '127.0.0.1', token, bigtop, tunnel = false, mode }) {
+  constructor({ session, port, host = '127.0.0.1', token, bigtop, tunnel = false, mode, whiteface }) {
     this.#wantsTunnel = tunnel
     this.#startMode = mode || null
+    // A separate secret from the bozo token: leaking the share link must not
+    // hand over control of the session with it.
+    this.#whitefaceToken = whiteface || null
     this.#session = session
     this.#token = token || randomBytes(16).toString('hex')
 
@@ -212,6 +220,13 @@ export class Ringmaster {
     await this.#reseed()
   }
 
+  // Prefer a URL a browser can actually reach from elsewhere.
+  #bestUrl() {
+    if (this.#tunnelUrl) return `${this.#tunnelUrl}/?t=${this.#token}`
+    if (this.bigtop) return this.bigtop.bozoUrl
+    return this.local.url
+  }
+
   async #writeMeta() {
     await writeFile(metaFile(this.#session), JSON.stringify(this.#meta(), null, 2))
   }
@@ -226,6 +241,8 @@ export class Ringmaster {
       url: local.url,
       bigtop: this.bigtop ? { url: this.bigtop.bozoUrl } : null,
       tunnel: this.#tunnelUrl ? `${this.#tunnelUrl}/?t=${this.#token}` : null,
+      whiteface: Boolean(this.#whitefaceToken),
+      whitefaceUrl: this.#whitefaceToken ? `${this.#bestUrl()}&w=${this.#whitefaceToken}` : null,
     }
   }
 
@@ -236,12 +253,53 @@ export class Ringmaster {
     channel.on('text', (raw) => this.#onGuestMessage(bozo, raw))
     channel.on('close', () => {
       this.#bozos.delete(channel.id)
+      if (this.#whiteface === channel.id) {
+        this.#whiteface = null
+        this.#notifyHost('c2c: the whiteface left, the role is free again')
+      }
       this.#writeStatusLine()
       this.#notifyHost(`c2c: ${bozo.name} left (${this.#bozos.size} connected)`)
     })
 
     // The bozo speaks first, with its name. Answering only once it has hoinked
     // means the host is told who arrived rather than that someone did.
+  }
+
+  #claimWhiteface(bozo, token) {
+    if (!this.#whitefaceToken || !timingSafeEqualString(token, this.#whitefaceToken)) {
+      bozo.channel.sendJson({ type: 'whiteface:refused', reason: 'bad token' })
+      return
+    }
+    // One holder at a time. The token stays valid so a dropped connection can
+    // reclaim the role, but nobody can take it from whoever holds it.
+    if (this.#whiteface && this.#whiteface !== bozo.id && this.#bozos.has(this.#whiteface)) {
+      bozo.channel.sendJson({ type: 'whiteface:refused', reason: 'someone else is the whiteface' })
+      return
+    }
+
+    this.#whiteface = bozo.id
+    bozo.whiteface = true
+    bozo.channel.sendJson({ type: 'whiteface', you: true })
+    this.#notifyHost(`c2c: ${bozo.name} is the whiteface now`)
+    this.#writeStatusLine()
+  }
+
+  #runWhitefaceAction(msg) {
+    if (msg.type === 'mode') {
+      const next = msg.mode === 'toggle'
+        ? (this.#policy.mode === YOLO ? GALLERY : YOLO)
+        : msg.mode
+      try {
+        this.#policy.setMode(next)
+      } catch {}
+      return
+    }
+    if (msg.type === 'approve') this.#policy.approve(Number(msg.id))
+    if (msg.type === 'deny') this.#policy.deny(Number(msg.id))
+    if (msg.type === 'approve-next') {
+      const [oldest] = this.#policy.list()
+      if (oldest) this.#policy.approve(oldest.id)
+    }
   }
 
   async #hoink(bozo, name) {
@@ -277,6 +335,22 @@ export class Ringmaster {
 
     if (msg.type === 'hoink') {
       this.#hoink(bozo, msg.name)
+      if (msg.whiteface) this.#claimWhiteface(bozo, msg.whiteface)
+      return
+    }
+
+    if (msg.type === 'whiteface') {
+      this.#claimWhiteface(bozo, msg.token)
+      return
+    }
+
+    // Everything below is host control, and only the whiteface may ask.
+    if (needsWhiteface(msg.type)) {
+      if (this.#whiteface !== bozo.id) {
+        bozo.channel.sendJson({ type: 'whiteface:refused', action: msg.type })
+        return
+      }
+      this.#runWhitefaceAction(msg)
       return
     }
 
@@ -400,7 +474,11 @@ export class Ringmaster {
     if (event.type === 'mode') {
       this.#notifyHost(`c2c: mode is now ${event.mode}`)
     }
-    this.#broadcastJson({ ...event, type: `policy:${event.type}` })
+    // What is waiting goes to the whiteface only. Another bozo's unreleased
+    // message is not the rest of the gallery's business, especially one the
+    // host is about to drop.
+    if (event.type === 'queued') this.#toWhiteface({ ...event, type: 'policy:queued' })
+    else this.#broadcastJson({ ...event, type: `policy:${event.type}` })
     this.#writeStatusLine()
   }
 
@@ -426,6 +504,11 @@ export class Ringmaster {
     try {
       await writeFile(statusFile(this.#session), parts.join(' #[fg=#362c4a]|#[default] ') + ' ')
     } catch {}
+  }
+
+  #toWhiteface(value) {
+    const holder = this.#whiteface && this.#bozos.get(this.#whiteface)
+    if (holder && !holder.channel.closed) holder.channel.sendJson(value)
   }
 
   #broadcastJson(value) {
@@ -476,6 +559,8 @@ export class Ringmaster {
           pending: this.#policy.list(),
           url: this.url,
           tunnel: this.#tunnelUrl ? `${this.#tunnelUrl}/?t=${this.#token}` : null,
+      whiteface: Boolean(this.#whitefaceToken),
+      whitefaceUrl: this.#whitefaceToken ? `${this.#bestUrl()}&w=${this.#whitefaceToken}` : null,
           bigtop: this.bigtop
             ? { url: this.bigtop.bozoUrl, connected: this.bigtop.connected, last: this.#bigtopStatus }
             : null,

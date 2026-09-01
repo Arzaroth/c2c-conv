@@ -301,6 +301,24 @@
   #keypad button.go { background: var(--wig-4); border-color: var(--wig-4); color: #06240f; }
   #keypad button:disabled { opacity: .35; cursor: not-allowed; }
 
+  .ring-btn {
+    padding: 4px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .ring-btn.go { background: var(--wig-4); border-color: var(--wig-4); color: #06240f; }
+  .ring-btn:hover { filter: brightness(1.15); }
+
+  /* The whiteface runs the ring, so the mode badge becomes its switch. */
+  body.whiteface #mode { cursor: pointer; }
+  body.whiteface #mode::after { content: ' ⇄'; opacity: .7; }
+
   #composer { display: flex; gap: 10px; }
   #composer input[type=text] {
     flex: 1;

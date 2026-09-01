@@ -292,6 +292,26 @@ and was rewritten until it did. tmux falls back to literal text for anything it
 does not recognise as a key name, so the literal-send test only bites when the
 payload is exactly a key name like `C-u`.
 
+## The whiteface
+
+A detached session has nobody at the prefix keys, which used to mean the gallery
+was unusable headless: messages could queue but nothing could release them. The
+whiteface fixes that without moving host control onto the share link.
+
+- The role is claimed with a token **separate** from the bozo token, so handing
+  someone the session does not hand them control of it.
+- One holder at a time. The token stays valid rather than being consumed, so a
+  dropped connection can reclaim the role, but nobody can take it from whoever
+  holds it, and it is released when they disconnect.
+- The gate is `needsWhiteface()` in the ringmaster, not a hidden button. A bozo
+  that opens its own socket and asks to approve is refused exactly the same.
+- The pending queue is sent to the whiteface alone. Another bozo's unreleased
+  message is not the rest of the gallery's business, least of all one that is
+  about to be dropped.
+
+Zavatta deliberately cannot claim it: the MCP server implements no whiteface
+tool, so an agent still cannot release its own messages.
+
 ## An agent as a bozo
 
 Zavatta is the MCP server: a human bozo is anonymous, and the one that is a

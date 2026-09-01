@@ -149,22 +149,31 @@ c2c ctl deny 3
 ## Headless: web only, nobody at the terminal
 
 ```sh
-c2c host --no-attach --yolo --tunnel
+c2c host --no-attach --tunnel
 ```
 
-Nothing is attached, and the whole session is driven from the browser. A bozo
-can send messages, and because the keypad works in yolo it can answer the
-session's own questions too - permission prompts, `/model`, plan approval - so
-no terminal is needed at any point.
+Nothing is attached and the whole session runs from the browser. Because there
+are no prefix keys to press, a detached session mints a second link:
 
-**Headless implies yolo, and that is not an accident.** The approval keys are
-tmux bindings that need an attached client, so a detached gallery session is one
-where nothing can ever be released except from `c2c ctl` on the machine itself.
-c2c says so if you start detached without `--yolo`.
+```
+  your own link, which makes you the whiteface (keep it to yourself):
+    https://....trycloudflare.com/?t=<bozo token>&w=<whiteface token>
+```
 
-Which means the link is the whole security boundary: anyone holding it runs
-commands as you, unwatched. Use `--token` you chose, keep it tight, and
-`c2c stop` when you are done.
+The **whiteface** is the clown who runs the ring. Open that link and you get
+release, drop and the mode switch in the browser, so the gallery still works
+with nobody at a terminal - you approve from your phone if you like. Bozos get
+the ordinary link without the `w=`.
+
+The whiteface token is a **separate secret** from the share link on purpose:
+handing someone the session must not hand them control of it. Only one bozo
+holds the role at a time, the queue is shown to them alone, and every host
+action is checked in the ringmaster rather than the UI - a bozo opening its own
+socket and asking to approve is refused just the same.
+
+If you would rather have no gate at all, `--yolo` starts wide open. Then the
+link is the whole security boundary: anyone holding it runs commands as you,
+unwatched.
 
 ## How many bozos
 
