@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { connect } from 'node:net'
+import { hostname, networkInterfaces } from 'node:os'
 import { readFile } from 'node:fs/promises'
 import { openSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -32,6 +33,8 @@ function parseArgs(argv) {
     else if (arg === '--bind') opts.host = argv[++i]
     else if (arg === '--cwd') opts.cwd = resolve(argv[++i])
     else if (arg === '--no-attach') opts.attach = false
+    else if (arg === '--broker') opts.broker = argv[++i]
+    else if (arg === '--room') opts.room = argv[++i]
     else rest.push(arg)
   }
   return { opts, rest, passthrough }
@@ -89,6 +92,8 @@ async function cmdHost({ opts, passthrough }) {
       C2C_PORT: String(opts.port),
       C2C_BIND: opts.host,
       C2C_TOKEN: token,
+      C2C_BROKER_URL: opts.broker ?? '',
+      C2C_BROKER_ROOM: opts.room ?? opts.session,
     },
   })
   child.unref()
@@ -101,12 +106,17 @@ async function cmdHost({ opts, passthrough }) {
   }
 
   console.log(`c2c-conv session "${opts.session}" is live`)
-  console.log(`  guest url   ${meta.host}:${meta.port} (token ${meta.token})`)
-  console.log(`  local link  http://${meta.host}:${meta.port}/?t=${meta.token}`)
-  console.log(`  over ssh    ssh -N -L ${meta.port}:${meta.host}:${meta.port} ${process.env.USER}@<this-host>`)
+  console.log('')
+  printInvite(meta, opts)
   console.log(`  mode        spectator (guests need your approval to send)`)
   console.log(`  control     c2c ctl status | c2c ctl mode yolo | c2c ctl approve <id>`)
   console.log('')
+
+  if (!isLoopback(opts.host)) {
+    console.log(`warning: bound to ${opts.host}, so anyone who can reach this port and`)
+    console.log('         guess the token can watch. Prefer ssh forwarding or --broker.')
+    console.log('')
+  }
 
   const state = await waitForReady(opts.session)
   if (state === 'dialog') {
@@ -120,6 +130,71 @@ async function cmdHost({ opts, passthrough }) {
   } else {
     console.log(`attach with: c2c attach -s ${opts.session}`)
   }
+}
+
+function isLoopback(host) {
+  return host === '127.0.0.1' || host === '::1' || host === 'localhost'
+}
+
+function tailscaleAddress() {
+  try {
+    const out = execFileSync('tailscale', ['ip', '-4'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+    return out.trim().split('\n')[0] || null
+  } catch {
+    return null
+  }
+}
+
+function lanAddresses() {
+  return Object.values(networkInterfaces())
+    .flat()
+    .filter((nic) => nic && nic.family === 'IPv4' && !nic.internal)
+    .map((nic) => nic.address)
+}
+
+function printInvite(meta, opts) {
+  const host = opts?.host ?? '127.0.0.1'
+  console.log('  how your guest gets in:')
+
+  if (meta.broker?.url) {
+    console.log(`    broker    ${meta.broker.url}`)
+    console.log('              works through NAT on both sides, nothing to forward')
+  }
+
+  console.log(`    ssh       ssh -N -L ${meta.port}:127.0.0.1:${meta.port} ${process.env.USER}@${hostname()}`)
+  console.log(`              then open http://127.0.0.1:${meta.port}/?t=${meta.token}`)
+
+  const ts = tailscaleAddress()
+  if (ts && !isLoopback(host)) {
+    console.log(`    tailscale http://${ts}:${meta.port}/?t=${meta.token}`)
+  } else if (ts) {
+    console.log(`    tailscale rebind with --bind ${ts} to serve the tailnet directly`)
+  }
+
+  if (!isLoopback(host)) {
+    for (const address of lanAddresses()) {
+      console.log(`    lan       http://${address}:${meta.port}/?t=${meta.token}`)
+    }
+  }
+  console.log('')
+}
+
+async function cmdInvite({ opts }) {
+  const meta = await readMeta(opts.session)
+  if (!meta) {
+    console.error(`no relay running for session "${opts.session}"`)
+    process.exit(1)
+  }
+  const status = await control(opts.session, { cmd: 'status' })
+  printInvite({ ...meta, broker: status.broker }, opts)
+}
+
+async function cmdBroker({ opts }) {
+  const { Broker } = await import('../broker/server.js')
+  const broker = new Broker()
+  const address = await broker.listen(opts.port === DEFAULTS.port ? 8080 : opts.port, opts.host)
+  console.log(`c2c broker listening on ${address.address}:${address.port}`)
+  await new Promise(() => {})
 }
 
 async function waitForReady(session, tries = 40) {
@@ -147,14 +222,17 @@ function shellQuote(value) {
 
 async function cmdRelay() {
   const session = process.env.C2C_SESSION
+  const brokerUrl = process.env.C2C_BROKER_URL
   const relay = new Relay({
     session,
     port: Number(process.env.C2C_PORT),
     host: process.env.C2C_BIND,
     token: process.env.C2C_TOKEN,
+    broker: brokerUrl ? { url: brokerUrl, room: process.env.C2C_BROKER_ROOM } : null,
   })
   await relay.start()
   console.log(`[relay] listening on ${relay.url}`)
+  if (brokerUrl) console.log(`[relay] broker uplink ${relay.broker.guestUrl}`)
 
   const shutdown = async () => {
     await relay.stop()
@@ -216,7 +294,12 @@ function printStatus(reply) {
   console.log(`session  ${reply.session}`)
   console.log(`mode     ${reply.mode}`)
   console.log(`url      ${reply.url}`)
-  console.log(`guests   ${reply.guests.length ? reply.guests.map((g) => g.name).join(', ') : 'none'}`)
+  if (reply.broker) {
+    console.log(`broker   ${reply.broker.connected ? 'connected' : 'disconnected'}  ${reply.broker.url}`)
+  }
+  console.log(
+    `guests   ${reply.guests.length ? reply.guests.map((g) => `${g.name} (${g.via})`).join(', ') : 'none'}`
+  )
   if (reply.pending.length) {
     console.log('pending:')
     for (const entry of reply.pending) {
@@ -239,10 +322,18 @@ function usage() {
   console.log(`c2c-conv - share one Claude Code session with a second person
 
 usage:
-  c2c host [-s NAME] [-p PORT] [--bind ADDR] [--cwd DIR] [--no-attach] [-- <claude args>]
+  c2c host [-s NAME] [-p PORT] [--bind ADDR] [--cwd DIR] [--no-attach]
+           [--broker wss://HOST] [--room NAME] [-- <claude args>]
   c2c attach [-s NAME]
+  c2c invite [-s NAME]
   c2c ctl <status|list|mode spectator|mode yolo|approve ID|deny ID|approve-all|deny-all>
   c2c stop [-s NAME]
+  c2c broker [-p PORT] [--bind ADDR]
+
+transports:
+  loopback + ssh   default, nothing to deploy
+  --bind ADDR      serve a LAN or tailnet address directly
+  --broker URL     dial out to a rendezvous broker, works through NAT both ends
 
 state lives in ${stateDir('<session>')}`)
 }
@@ -263,6 +354,12 @@ try {
       break
     case 'ctl':
       await cmdCtl({ opts, rest: rest.slice(1) })
+      break
+    case 'invite':
+      await cmdInvite({ opts })
+      break
+    case 'broker':
+      await cmdBroker({ opts })
       break
     case 'stop':
       await cmdStop({ opts })

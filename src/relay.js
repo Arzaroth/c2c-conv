@@ -1,49 +1,51 @@
-import { createServer } from 'node:http'
 import { createServer as createUnixServer } from 'node:net'
-import { readFile, unlink, writeFile } from 'node:fs/promises'
+import { unlink, writeFile } from 'node:fs/promises'
 import { randomBytes } from 'node:crypto'
-import { fileURLToPath } from 'node:url'
-import { dirname, extname, join, normalize } from 'node:path'
 
 import * as tmux from './tmux.js'
 import { PaneStream } from './panestream.js'
 import { Policy, SPECTATOR } from './policy.js'
-import { handshake, isUpgrade } from './ws.js'
+import { LocalTransport } from './transport/local.js'
+import { BrokerTransport } from './transport/broker.js'
 import { controlSocket, ensureStateDir, metaFile, paneFile } from './paths.js'
-
-const WEB_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', 'web')
-
-const MIME = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.svg': 'image/svg+xml',
-}
 
 export class Relay {
   #session
-  #port
-  #host
   #token
   #policy = new Policy()
-  #guests = new Set()
+  #guests = new Map()
+  #transports = []
   #pane = null
-  #http = null
   #control = null
+  #brokerStatus = null
 
-  constructor({ session, port, host = '127.0.0.1', token }) {
+  constructor({ session, port, host = '127.0.0.1', token, broker }) {
     this.#session = session
-    this.#port = port
-    this.#host = host
     this.#token = token || randomBytes(16).toString('hex')
+
+    this.#transports.push(new LocalTransport({ port, host, token: this.#token }))
+
+    if (broker?.url) {
+      this.#transports.push(
+        new BrokerTransport({ url: broker.url, room: broker.room, token: broker.token || this.#token })
+      )
+    }
   }
 
   get token() {
     return this.#token
   }
 
+  get local() {
+    return this.#transports.find((t) => t.name === 'local')
+  }
+
+  get broker() {
+    return this.#transports.find((t) => t.name === 'broker')
+  }
+
   get url() {
-    return `http://${this.#host}:${this.#port}/?t=${this.#token}`
+    return this.local.url
   }
 
   get policy() {
@@ -56,25 +58,30 @@ export class Relay {
     await tmux.startPipe(this.#session, paneFile(this.#session))
 
     this.#pane = new PaneStream(paneFile(this.#session))
-    this.#pane.on('data', (chunk) => this.#broadcastBinary(chunk))
+    this.#pane.on('data', (chunk) => {
+      for (const transport of this.#transports) transport.broadcastBinary(chunk)
+    })
     await this.#pane.start()
 
     this.#policy.onEvent((event) => this.#onPolicyEvent(event))
 
-    await this.#startHttp()
-    await this.#startControl()
+    for (const transport of this.#transports) {
+      transport.on('guest', (channel) => this.#onGuest(channel))
+      transport.on('status', (status) => {
+        this.#brokerStatus = status
+        console.log(`[broker] ${JSON.stringify(status)}`)
+      })
+      await transport.start()
+    }
 
-    await writeFile(
-      metaFile(this.#session),
-      JSON.stringify({ session: this.#session, pid: process.pid, port: this.#port, host: this.#host, token: this.#token }, null, 2)
-    )
+    await this.#startControl()
+    await writeFile(metaFile(this.#session), JSON.stringify(this.#meta(), null, 2))
   }
 
   async stop() {
     await tmux.stopPipe(this.#session)
     await this.#pane?.stop()
-    for (const guest of this.#guests) guest.socket.close()
-    this.#http?.close()
+    for (const transport of this.#transports) await transport.stop()
     this.#control?.close()
     for (const path of [controlSocket(this.#session), metaFile(this.#session)]) {
       try {
@@ -83,52 +90,32 @@ export class Relay {
     }
   }
 
-  async #startHttp() {
-    this.#http = createServer((req, res) => this.#serveStatic(req, res))
-    this.#http.on('upgrade', (req, socket) => this.#onUpgrade(req, socket))
-    await new Promise((resolve, reject) => {
-      this.#http.once('error', reject)
-      this.#http.listen(this.#port, this.#host, resolve)
-    })
-  }
-
-  async #serveStatic(req, res) {
-    const url = new URL(req.url, 'http://localhost')
-    let file = url.pathname === '/' ? 'index.html' : url.pathname.slice(1)
-    file = normalize(file).replace(/^(\.\.[/\\])+/, '')
-    try {
-      const body = await readFile(join(WEB_ROOT, file))
-      res.writeHead(200, { 'content-type': MIME[extname(file)] || 'application/octet-stream' })
-      res.end(body)
-    } catch {
-      res.writeHead(404, { 'content-type': 'text/plain' })
-      res.end('not found\n')
+  #meta() {
+    const local = this.local
+    return {
+      session: this.#session,
+      pid: process.pid,
+      port: local.port,
+      token: this.#token,
+      url: local.url,
+      broker: this.broker ? { url: this.broker.guestUrl } : null,
     }
   }
 
-  async #onUpgrade(req, socket) {
-    const url = new URL(req.url, 'http://localhost')
-    if (url.searchParams.get('t') !== this.#token) {
-      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
-      socket.destroy()
-      return
-    }
-    const ws = handshake(req, socket)
-    if (!ws) return
+  async #onGuest(channel) {
+    const guest = { id: channel.id, name: 'guest', origin: channel.origin, channel }
+    this.#guests.set(channel.id, guest)
 
-    const guest = { id: randomBytes(4).toString('hex'), name: 'guest', socket: ws }
-    this.#guests.add(guest)
-
-    ws.on('text', (raw) => this.#onGuestMessage(guest, raw))
-    ws.on('close', () => {
-      this.#guests.delete(guest)
+    channel.on('text', (raw) => this.#onGuestMessage(guest, raw))
+    channel.on('close', () => {
+      this.#guests.delete(channel.id)
       this.#notifyHost(`c2c: ${guest.name} left (${this.#guests.size} connected)`)
     })
 
     const { cols, rows } = await tmux.paneSize(this.#session)
-    ws.sendJson({ type: 'hello', mode: this.#policy.mode, cols, rows, guestId: guest.id })
-    ws.sendJson({ type: 'screen', data: await tmux.capturePane(this.#session) })
-    this.#notifyHost(`c2c: a guest connected (${this.#guests.size} connected)`)
+    channel.sendJson({ type: 'hello', mode: this.#policy.mode, cols, rows, guestId: guest.id })
+    channel.sendJson({ type: 'screen', data: await tmux.capturePane(this.#session) })
+    this.#notifyHost(`c2c: a guest connected via ${channel.origin} (${this.#guests.size} connected)`)
   }
 
   #onGuestMessage(guest, raw) {
@@ -141,7 +128,7 @@ export class Relay {
 
     if (msg.type === 'name' && typeof msg.name === 'string') {
       guest.name = msg.name.slice(0, 40).replace(/[^\w .-]/g, '') || 'guest'
-      guest.socket.sendJson({ type: 'named', name: guest.name })
+      guest.channel.sendJson({ type: 'named', name: guest.name })
       return
     }
 
@@ -149,9 +136,9 @@ export class Relay {
       const result = this.#policy.submit({ text: msg.text, guest: guest.name })
       if (result.action === 'send') {
         this.#inject(result.text)
-        guest.socket.sendJson({ type: 'accepted', text: result.text })
+        guest.channel.sendJson({ type: 'accepted', text: result.text })
       } else if (result.action === 'queued') {
-        guest.socket.sendJson({ type: 'pending', id: result.id, text: msg.text })
+        guest.channel.sendJson({ type: 'pending', id: result.id, text: msg.text })
       }
     }
   }
@@ -181,16 +168,8 @@ export class Relay {
     tmux.notify(this.#session, message)
   }
 
-  #broadcastBinary(chunk) {
-    for (const guest of this.#guests) {
-      if (!guest.socket.closed) guest.socket.sendBinary(chunk)
-    }
-  }
-
   #broadcastJson(value) {
-    for (const guest of this.#guests) {
-      if (!guest.socket.closed) guest.socket.sendJson(value)
-    }
+    for (const transport of this.#transports) transport.broadcastJson(value)
   }
 
   async #startControl() {
@@ -233,9 +212,12 @@ export class Relay {
           ok: true,
           session: this.#session,
           mode: this.#policy.mode,
-          guests: [...this.#guests].map((g) => ({ id: g.id, name: g.name })),
+          guests: [...this.#guests.values()].map((g) => ({ id: g.id, name: g.name, via: g.origin })),
           pending: this.#policy.list(),
           url: this.url,
+          broker: this.broker
+            ? { url: this.broker.guestUrl, connected: this.broker.connected, last: this.#brokerStatus }
+            : null,
         }
       case 'mode':
         return { ok: true, mode: this.#policy.setMode(msg.mode) }

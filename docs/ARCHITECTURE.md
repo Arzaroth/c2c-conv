@@ -24,9 +24,16 @@ input enters via `send-keys -l --`, which sends text literally so guest input ca
 never be interpreted as a tmux key name.
 
 **Relay** (`src/relay.js`)
-A detached node process. Tails the pane file, broadcasts raw bytes to guests as
-binary websocket frames, and serves the guest client. Holds the policy state and
-exposes a unix control socket for the host.
+A detached node process. Tails the pane file, hands raw bytes to every active
+transport, holds the policy state, and exposes a unix control socket for the host.
+It knows nothing about how a guest arrived.
+
+**Transports** (`src/transport/`)
+`LocalTransport` serves the guest client over http and accepts websocket
+upgrades. `BrokerTransport` dials out to a rendezvous broker and multiplexes
+every guest in the room over that one socket. Both emit `guest` channels with the
+same shape, and both expose `broadcastBinary` so pane bytes cross an uplink once
+rather than once per guest.
 
 **Policy** (`src/policy.js`)
 The mode ladder. `spectator` (default) queues guest submissions for host
@@ -50,24 +57,16 @@ source of truth; the transcript is optional enrichment.
 
 ## Transport ladder
 
-v0 binds to `127.0.0.1` and expects the guest to arrive over ssh or tailscale:
+A transport owes the relay two operations: *stream these bytes to the guest* and
+*submit this text*. Everything above it is transport-agnostic, so the rungs are
+additive and can run simultaneously.
 
-```
-ssh -N -L 7331:127.0.0.1:7331 user@host
-```
+1. **loopback + ssh** - the default, nothing to deploy.
+2. **bind wider** - `--bind` for LAN or a tailnet address.
+3. **rendezvous broker** - `--broker`, both sides dial out, works through NAT on
+   both ends.
 
-The relay only needs two operations from any transport: *stream these bytes to
-the guest* and *submit this text*. That keeps the later rungs additive rather
-than a rewrite:
-
-1. **ssh / tailscale** - today. No hosted infrastructure, no auth to build.
-2. **Local web server** - already here, just bind wider and put a real secret in
-   front of it.
-3. **Hosted rendezvous** - both sides dial out over websocket to a broker. This
-   is deliberately preferred over WebRTC: a data channel still needs signalling
-   plus a TURN fallback for symmetric NAT, which is most of the cost of running
-   the broker anyway. Treat WebRTC as a later latency optimisation, not a v0
-   requirement.
+Full detail, wire protocol and deployment: [TRANSPORTS.md](TRANSPORTS.md).
 
 ## Security model
 

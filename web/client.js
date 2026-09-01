@@ -55,9 +55,19 @@ function renderPending() {
   }
 }
 
-function connect() {
+// The same page is served by the local relay at / and by the broker at
+// /r/<room>, so the socket endpoint is derived from where it was loaded.
+function endpoint() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-  socket = new WebSocket(`${proto}://${location.host}/?t=${encodeURIComponent(token)}`)
+  const room = location.pathname.startsWith('/r/') ? decodeURIComponent(location.pathname.slice(3)) : null
+  const query = room
+    ? `room=${encodeURIComponent(room)}&t=${encodeURIComponent(token)}`
+    : `t=${encodeURIComponent(token)}`
+  return `${proto}://${location.host}/${room ? 'guest' : ''}?${query}`
+}
+
+function connect() {
+  socket = new WebSocket(endpoint())
   socket.binaryType = 'arraybuffer'
 
   socket.onopen = () => {
@@ -106,6 +116,12 @@ function handle(msg) {
     case 'policy:denied':
       pending.delete(msg.id)
       renderPending()
+      break
+    case 'policy:held':
+      el.hint.textContent = `held: the session is ${msg.state}, resend once it is idle`
+      break
+    case 'notice':
+      term.write(`\r\n\x1b[38;5;246m[c2c] ${msg.text}\x1b[39m\r\n`)
       break
   }
 }
