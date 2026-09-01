@@ -31,7 +31,7 @@ test('a named tunnel hostname is accepted from the announcement', () => {
 
 test('a missing binary is reported as such', async () => {
   const tunnel = new Tunnel({ port: 1234, bin: '/nonexistent/cloudflared' })
-  await assert.rejects(() => tunnel.start(2000), /not installed or not on PATH/)
+  await assert.rejects(() => tunnel.start(2000), /cloudflared is not on PATH/)
 })
 
 // cloudflared is not installed here, so the lifecycle is exercised against a

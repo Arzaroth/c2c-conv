@@ -77,9 +77,16 @@ export class Tunnel extends EventEmitter {
 
       child.on('error', (err) => {
         clearTimeout(timer)
+        // The npm packages that "provide" cloudflared only download this same
+        // Go binary, and Cloudflare publishes no checksums to verify it against,
+        // so a signed distro package is the better way to get it.
         reject(
           err.code === 'ENOENT'
-            ? new Error('cloudflared is not installed or not on PATH')
+            ? new Error(
+                'cloudflared is not on PATH. Install it with your package manager ' +
+                '(pacman -S cloudflared, brew install cloudflared, or the .deb/.rpm ' +
+                'from github.com/cloudflare/cloudflared/releases), then retry.'
+              )
             : err
         )
       })
