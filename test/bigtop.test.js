@@ -50,55 +50,55 @@ function open(url, { binary = false } = {}) {
   })
 }
 
-test('a guest cannot join a room with no host', async () => {
-  await assert.rejects(() => open(`${base}/guest?room=empty&t=secret-token`))
+test('a bozo cannot join a room with no host', async () => {
+  await assert.rejects(() => open(`${base}/bozo?room=empty&t=secret-token`))
 })
 
-test('a host claims a room and sees the guest join', async () => {
+test('a host claims a room and sees the bozo join', async () => {
   const host = await open(`${base}/uplink?room=alpha&t=secret-token`)
-  const guest = await open(`${base}/guest?room=alpha&t=secret-token`)
+  const bozo = await open(`${base}/bozo?room=alpha&t=secret-token`)
 
   const join = await host.next()
   assert.equal(join.event, 'join')
   assert.match(join.from, /^[0-9a-f]{8}$/)
 
   host.close()
-  guest.close()
+  bozo.close()
 })
 
-test('guest messages arrive enveloped, host replies arrive verbatim', async () => {
+test('bozo messages arrive enveloped, host replies arrive verbatim', async () => {
   const host = await open(`${base}/uplink?room=beta&t=secret-token`)
-  const guest = await open(`${base}/guest?room=beta&t=secret-token`)
+  const bozo = await open(`${base}/bozo?room=beta&t=secret-token`)
 
   const join = await host.next()
   assert.equal(join.event, 'join')
-  const guestId = join.from
+  const bozoId = join.from
 
-  guest.send({ type: 'submit', text: 'hello' })
+  bozo.send({ type: 'submit', text: 'hello' })
   const forwarded = await host.next()
   assert.equal(forwarded.event, 'message')
-  assert.equal(forwarded.from, guestId)
+  assert.equal(forwarded.from, bozoId)
   assert.deepEqual(forwarded.payload, { type: 'submit', text: 'hello' })
 
-  host.send({ to: guestId, payload: { type: 'pending', id: 1 } })
-  assert.deepEqual(await guest.next(), { type: 'pending', id: 1 })
+  host.send({ to: bozoId, payload: { type: 'pending', id: 1 } })
+  assert.deepEqual(await bozo.next(), { type: 'pending', id: 1 })
 
   host.close()
-  guest.close()
+  bozo.close()
 })
 
-test('a host binary frame fans out to every guest', async () => {
+test('a host binary frame fans out to every bozo', async () => {
   const host = await open(`${base}/uplink?room=gamma&t=secret-token`)
-  const one = await open(`${base}/guest?room=gamma&t=secret-token`, { binary: true })
-  const two = await open(`${base}/guest?room=gamma&t=secret-token`, { binary: true })
+  const one = await open(`${base}/bozo?room=gamma&t=secret-token`, { binary: true })
+  const two = await open(`${base}/bozo?room=gamma&t=secret-token`, { binary: true })
 
   await host.next()
   await host.next()
 
   host.sendRaw(new Uint8Array([0x1b, 0x5b, 0x41]))
 
-  for (const guest of [one, two]) {
-    const frame = await guest.next()
+  for (const bozo of [one, two]) {
+    const frame = await bozo.next()
     assert.deepEqual(new Uint8Array(frame), new Uint8Array([0x1b, 0x5b, 0x41]))
   }
 
@@ -107,17 +107,17 @@ test('a host binary frame fans out to every guest', async () => {
   two.close()
 })
 
-test('a broadcast reaches every guest, a targeted message only one', async () => {
+test('a broadcast reaches every bozo, a targeted message only one', async () => {
   const host = await open(`${base}/uplink?room=delta&t=secret-token`)
-  const one = await open(`${base}/guest?room=delta&t=secret-token`)
-  const two = await open(`${base}/guest?room=delta&t=secret-token`)
+  const one = await open(`${base}/bozo?room=delta&t=secret-token`)
+  const two = await open(`${base}/bozo?room=delta&t=secret-token`)
 
   const first = (await host.next()).from
   await host.next()
 
-  host.send({ to: '*', payload: { type: 'policy:mode', mode: 'ring' } })
-  assert.deepEqual(await one.next(), { type: 'policy:mode', mode: 'ring' })
-  assert.deepEqual(await two.next(), { type: 'policy:mode', mode: 'ring' })
+  host.send({ to: '*', payload: { type: 'policy:mode', mode: 'yolo' } })
+  assert.deepEqual(await one.next(), { type: 'policy:mode', mode: 'yolo' })
+  assert.deepEqual(await two.next(), { type: 'policy:mode', mode: 'yolo' })
 
   host.send({ to: first, payload: { type: 'named', name: 'bozo' } })
   assert.deepEqual(await one.next(), { type: 'named', name: 'bozo' })
@@ -127,9 +127,9 @@ test('a broadcast reaches every guest, a targeted message only one', async () =>
   two.close()
 })
 
-test('a guest with the wrong token is refused', async () => {
+test('a bozo with the wrong token is refused', async () => {
   const host = await open(`${base}/uplink?room=epsilon&t=secret-token`)
-  await assert.rejects(() => open(`${base}/guest?room=epsilon&t=wrong-token`))
+  await assert.rejects(() => open(`${base}/bozo?room=epsilon&t=wrong-token`))
   host.close()
 })
 
@@ -182,26 +182,26 @@ test('a new host can claim a room once the stale one is reaped', async () => {
   await new Promise((r) => setTimeout(r, 500))
 
   const fresh = await open(`${url}/uplink?room=iota&t=new-token`)
-  const guest = await open(`${url}/guest?room=iota&t=new-token`)
+  const bozo = await open(`${url}/bozo?room=iota&t=new-token`)
   assert.equal((await fresh.next()).event, 'join')
 
   stale.destroy()
   fresh.close()
-  guest.close()
+  bozo.close()
   quick.close()
 })
 
-test('guests are dropped when the host disconnects', async () => {
+test('bozos are dropped when the host disconnects', async () => {
   const host = await open(`${base}/uplink?room=eta&t=secret-token`)
-  const guest = await open(`${base}/guest?room=eta&t=secret-token`)
+  const bozo = await open(`${base}/bozo?room=eta&t=secret-token`)
   await host.next()
 
-  const closed = new Promise((resolve) => guest.ws.addEventListener('close', resolve))
+  const closed = new Promise((resolve) => bozo.ws.addEventListener('close', resolve))
   host.close()
-  assert.deepEqual(await guest.next(), { type: 'notice', text: 'host disconnected' })
+  assert.deepEqual(await bozo.next(), { type: 'notice', text: 'host disconnected' })
   await closed
 
-  await assert.rejects(() => open(`${base}/guest?room=eta&t=secret-token`))
+  await assert.rejects(() => open(`${base}/bozo?room=eta&t=secret-token`))
 })
 
 test('static paths cannot escape the web root', () => {

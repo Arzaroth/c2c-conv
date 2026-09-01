@@ -99,7 +99,7 @@ let paneState = 'unknown'
 
 function refreshKeypad() {
   el.keypad.hidden = paneState !== 'dialog'
-  const usable = mode === 'ring'
+  const usable = mode === 'yolo'
   for (const button of el.keypad.querySelectorAll('button')) button.disabled = !usable
   el.keypad.querySelector('.keypad-label').textContent = usable
     ? '🤡 the session is asking'
@@ -117,7 +117,7 @@ const term = new Terminal({
   disableStdin: true,
   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
   fontSize: 13,
-  // The guest mirrors a fixed-size pane that repaints in place, so scrollback
+  // The bozo mirrors a fixed-size pane that repaints in place, so scrollback
   // would only collect redraw debris.
   scrollback: 0,
   theme: {
@@ -130,7 +130,7 @@ const term = new Terminal({
 term.open(el.screen)
 term.resize(80, 24)
 
-// The guest terminal has to keep the host's exact column count or the live ANSI
+// The bozo terminal has to keep the host's exact column count or the live ANSI
 // stream lands in the wrong places, so the whole grid is scaled to fit rather
 // than reflowed.
 // Fit by font size rather than a CSS transform: xterm then renders natively at
@@ -200,8 +200,8 @@ let ended = false
 function setMode(next) {
   mode = next
   el.mode.className = `badge ${next}`
-  el.modeText.textContent = next === 'ring' ? 'RING' : 'GALLERY'
-  el.hint.innerHTML = next === 'ring'
+  el.modeText.textContent = next === 'yolo' ? 'YOLO' : 'GALLERY'
+  el.hint.innerHTML = next === 'yolo'
     ? 'Straight through. What you send lands as if the host typed it.'
     : 'The host has to <b>release</b> anything you send.'
   refreshKeypad()
@@ -241,7 +241,7 @@ function endpoint() {
   const query = room
     ? `room=${encodeURIComponent(room)}&t=${encodeURIComponent(token)}`
     : `t=${encodeURIComponent(token)}`
-  return `${proto}://${location.host}/${room ? 'guest' : ''}?${query}`
+  return `${proto}://${location.host}/${room ? 'bozo' : ''}?${query}`
 }
 
 function connect() {
@@ -251,7 +251,7 @@ function connect() {
   socket.onopen = () => {
     retry = 500
     setLink(true)
-    announce()
+    hoink()
   }
 
   socket.onclose = () => {
@@ -273,8 +273,9 @@ function connect() {
 
 function handle(msg) {
   switch (msg.type) {
-    case 'hello':
+    case 'hoink':
       paneState = msg.state ?? 'unknown'
+      if (msg.name) el.who.value = msg.name
       setMode(msg.mode)
       term.resize(msg.cols, msg.rows)
       rescale()
@@ -359,8 +360,15 @@ el.form.addEventListener('submit', (event) => {
   el.text.value = ''
 })
 
-let name = localStorage.getItem('c2c-name') || 'guest'
+let name = localStorage.getItem('c2c-name') || 'bozo'
 el.who.value = name
+
+// HOINK is the greeting: the bozo announces itself and the ringmaster hoinks
+// back with the mode, the pane size and the current screen.
+function hoink() {
+  if (socket?.readyState !== WebSocket.OPEN) return
+  socket.send(JSON.stringify({ type: 'hoink', name }))
+}
 
 function announce() {
   if (socket?.readyState !== WebSocket.OPEN) return
@@ -368,7 +376,7 @@ function announce() {
 }
 
 el.who.addEventListener('change', () => {
-  name = el.who.value.trim() || 'guest'
+  name = el.who.value.trim() || 'bozo'
   el.who.value = name
   localStorage.setItem('c2c-name', name)
   announce()

@@ -16,7 +16,7 @@ const SELF = fileURLToPath(import.meta.url)
 
 // The old mode names stay valid. "yolo" in particular said "this is dangerous"
 // out loud, and anyone who learned it should not be told it is now invalid.
-const MODE_ALIASES = { spectator: 'gallery', yolo: 'ring' }
+const MODE_ALIASES = { spectator: 'gallery', ring: 'yolo' }
 
 const DEFAULTS = { session: 'c2c', port: 7331, host: '127.0.0.1' }
 
@@ -134,13 +134,13 @@ async function cmdHost({ opts, passthrough }) {
   console.log(`c2c-conv session "${opts.session}" is live`)
   console.log('')
   printInvite(meta, opts)
-  console.log(`  mode        gallery (guests need your approval to send)`)
+  console.log(`  mode        gallery (bozos need your approval to send)`)
   console.log('')
   console.log('  in the session, without leaving it:')
   console.log('    prefix + a  release the next waiting message')
   console.log('    prefix + d  drop it')
   console.log('    prefix + y  toggle gallery / ring')
-  console.log('  the status bar shows mode, guests, and what is waiting.')
+  console.log('  the status bar shows mode, bozos, and what is waiting.')
   console.log('')
 
   if (!isLoopback(opts.host)) {
@@ -152,7 +152,7 @@ async function cmdHost({ opts, passthrough }) {
   const state = await waitForReady(opts.session)
   if (state === 'dialog') {
     console.log('note: the session is waiting on a dialog (workspace trust?).')
-    console.log('      answer it in the pane - guest messages are held until it clears.')
+    console.log('      answer it in the pane - bozo messages are held until it clears.')
     console.log('')
   }
 
@@ -194,7 +194,7 @@ function lanAddresses() {
 
 // Only advertise addresses that are actually listening. A socket bound to one
 // address does not answer on the others, so listing every interface hands the
-// guest URLs that refuse the connection.
+// bozo URLs that refuse the connection.
 function reachableAddresses(host) {
   if (host === '0.0.0.0' || host === '::') return ['127.0.0.1', ...lanAddresses()]
   return [host]
@@ -205,7 +205,7 @@ function printInvite(meta, opts) {
   const reachable = reachableAddresses(host)
   const tailnet = tailscaleAddress()
 
-  console.log('  how your guest gets in:')
+  console.log('  how your bozo gets in:')
 
   if (meta.bigtop?.url) {
     console.log(`    bigtop    ${meta.bigtop.url}`)
@@ -282,7 +282,7 @@ async function cmdRingmaster() {
   })
   await ringmaster.start()
   console.log(`[ringmaster] listening on ${ringmaster.url}`)
-  if (bigtopUrl) console.log(`[ringmaster] bigtop uplink ${ringmaster.bigtop.guestUrl}`)
+  if (bigtopUrl) console.log(`[ringmaster] bigtop uplink ${ringmaster.bigtop.bozoUrl}`)
 
   const shutdown = async () => {
     await ringmaster.stop()
@@ -294,7 +294,7 @@ async function cmdRingmaster() {
   setInterval(async () => {
     if (!(await tmux.hasSession(session))) {
       console.log('[ringmaster] tmux session gone, shutting down')
-      // Otherwise guests just see the socket drop and reconnect forever.
+      // Otherwise bozos just see the socket drop and reconnect forever.
       ringmaster.announceEnd('the session ended')
       await new Promise((r) => setTimeout(r, 150))
       await shutdown()
@@ -313,7 +313,7 @@ async function cmdCtl({ opts, rest }) {
   const [sub, ...args] = rest
   const message = buildControlMessage(sub, args)
   if (!message) {
-    console.error('usage: c2c ctl <status|list|mode gallery|mode ring|approve ID|deny ID|approve-all|deny-all>')
+    console.error('usage: c2c ctl <status|list|mode gallery|mode yolo|approve ID|deny ID|approve-all|deny-all>')
     process.exit(1)
   }
   const reply = await control(opts.session, message)
@@ -353,12 +353,12 @@ function printStatus(reply) {
     console.log(`bigtop   ${reply.bigtop.connected ? 'connected' : 'disconnected'}  ${reply.bigtop.url}`)
   }
   console.log(
-    `guests   ${reply.guests.length ? reply.guests.map((g) => `${g.name} (${g.via})`).join(', ') : 'none'}`
+    `bozos   ${reply.bozos.length ? reply.bozos.map((g) => `${g.name} (${g.via})`).join(', ') : 'none'}`
   )
   if (reply.pending.length) {
     console.log('pending:')
     for (const entry of reply.pending) {
-      console.log(`  #${entry.id}  ${entry.guest}: ${entry.text}`)
+      console.log(`  #${entry.id}  ${entry.bozo}: ${entry.text}`)
     }
   } else {
     console.log('pending  none')
@@ -381,7 +381,7 @@ usage:
            [--bigtop wss://HOST] [--room NAME] [--token SECRET] [-- <claude args>]
   c2c attach [-s NAME]
   c2c invite [-s NAME]
-  c2c ctl <status|list|mode gallery|mode ring|approve ID|deny ID|approve-all|deny-all>
+  c2c ctl <status|list|mode gallery|mode yolo|approve ID|deny ID|approve-all|deny-all>
   c2c stop [-s NAME]
   c2c bigtop [-p PORT] [--bind ADDR]
 

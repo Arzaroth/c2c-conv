@@ -72,7 +72,7 @@ export function toEntry(record) {
   return null
 }
 
-// Tool results carry whole file contents and command output. Guests can see all
+// Tool results carry whole file contents and command output. Bozos can see all
 // of it in the mirror anyway, so this is about keeping the history readable, not
 // about hiding anything.
 function plainText(content) {

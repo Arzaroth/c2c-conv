@@ -24,10 +24,10 @@ Two things, and only one of them is obvious.
 
 **Pass the upgrade through.** Caddy's `reverse_proxy` does this on its own.
 nginx does **not**: without `proxy_set_header Upgrade` and `Connection`, the
-handshake returns 200 instead of 101 and every guest sits at "offline"
+handshake returns 200 instead of 101 and every bozo sits at "offline"
 retrying. That looks like a broken bigtop rather than a proxy problem.
 
-**Do not time out idle connections.** A guest watching without typing sends
+**Do not time out idle connections.** A bozo watching without typing sends
 nothing for minutes. nginx's default `proxy_read_timeout` is 60s, which would
 cut healthy connections repeatedly. The bigtop already pings every 15s and
 drops peers that miss a pong, so dead connections are detected without the
@@ -53,7 +53,7 @@ bigtop is reachable but refused the uplink - check the room name and token
 ## What has actually been tested
 
 The `wss://` path was verified end to end against a TLS terminator in front of
-the bigtop: uplink connected, a guest joined over TLS, a message reached the
+the bigtop: uplink connected, a bozo joined over TLS, a message reached the
 session and the pane stream came back. Certificate verification is on and is
 enforced - an untrusted certificate is refused rather than ignored.
 
@@ -61,4 +61,4 @@ enforced - an untrusted certificate is refused rather than ignored.
 terminator that pipes TCP, so it does not exercise nginx or Caddy rewriting
 headers, which is exactly where the upgrade gotcha above lives. Treat the two
 configs here as informed starting points, and check for a `101` on the first
-guest connection.
+bozo connection.

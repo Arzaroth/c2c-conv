@@ -84,7 +84,7 @@ export class Bigtop {
   close() {
     for (const room of this.#rooms.values()) {
       room.host?.close()
-      for (const guest of room.guests.values()) guest.close()
+      for (const bozo of room.bozos.values()) bozo.close()
     }
     this.#rooms.clear()
     this.#server?.close()
@@ -99,7 +99,7 @@ export class Bigtop {
       return
     }
 
-    // /r/<room> is the guest entry point; everything else is a static asset.
+    // /r/<room> is the bozo entry point; everything else is a static asset.
     const file = url.pathname.startsWith('/r/') ? 'index.html' : url.pathname.slice(1) || 'index.html'
     const target = resolvePublic(file)
     if (!target) {
@@ -131,7 +131,7 @@ export class Bigtop {
     if (!validToken(token)) return reject(socket, 400, 'token too short')
 
     if (url.pathname === '/uplink') return this.#acceptHost(req, socket, room, token)
-    if (url.pathname === '/guest') return this.#acceptGuest(req, socket, room, token)
+    if (url.pathname === '/bozo') return this.#acceptGuest(req, socket, room, token)
     return reject(socket, 404, 'unknown endpoint')
   }
 
@@ -153,29 +153,29 @@ export class Bigtop {
     const ws = handshake(req, socket)
     if (!ws) return
 
-    const room = existing ?? { token, guests: new Map(), host: null }
+    const room = existing ?? { token, bozos: new Map(), host: null }
     room.host = ws
     this.#rooms.set(roomId, room)
     heartbeat(ws, this.heartbeatMs)
 
     ws.on('text', (raw) => this.#fromHost(room, raw))
     ws.on('binary', (chunk) => {
-      for (const guest of room.guests.values()) {
-        if (!guest.closed) guest.sendBinary(chunk)
+      for (const bozo of room.bozos.values()) {
+        if (!bozo.closed) bozo.sendBinary(chunk)
       }
     })
     ws.on('close', () => {
-      for (const guest of room.guests.values()) {
-        guest.sendJson({ type: 'notice', text: 'host disconnected' })
-        guest.close()
+      for (const bozo of room.bozos.values()) {
+        bozo.sendJson({ type: 'notice', text: 'host disconnected' })
+        bozo.close()
       }
-      room.guests.clear()
+      room.bozos.clear()
       room.host = null
       this.#rooms.delete(roomId)
     })
 
-    for (const [id, guest] of room.guests) {
-      if (!guest.closed) ws.sendJson({ from: id, event: 'join' })
+    for (const [id, bozo] of room.bozos) {
+      if (!bozo.closed) ws.sendJson({ from: id, event: 'join' })
     }
   }
 
@@ -183,13 +183,13 @@ export class Bigtop {
     const room = this.#rooms.get(roomId)
     if (!room || !room.host || room.host.closed) return reject(socket, 404, 'no host in this room')
     if (!timingSafeEqualString(token, room.token)) return reject(socket, 401, 'bad token')
-    if (room.guests.size >= MAX_GUESTS) return reject(socket, 429, 'room full')
+    if (room.bozos.size >= MAX_GUESTS) return reject(socket, 429, 'room full')
 
     const ws = handshake(req, socket)
     if (!ws) return
 
     const id = randomBytes(4).toString('hex')
-    room.guests.set(id, ws)
+    room.bozos.set(id, ws)
     heartbeat(ws, this.heartbeatMs)
 
     ws.on('text', (raw) => {
@@ -202,7 +202,7 @@ export class Bigtop {
       room.host?.sendJson({ from: id, event: 'message', payload })
     })
     ws.on('close', () => {
-      room.guests.delete(id)
+      room.bozos.delete(id)
       room.host?.sendJson({ from: id, event: 'leave' })
     })
 
@@ -217,13 +217,13 @@ export class Bigtop {
       return
     }
 
-    const targets = msg.to === '*' ? [...room.guests.values()] : [room.guests.get(msg.to)].filter(Boolean)
+    const targets = msg.to === '*' ? [...room.bozos.values()] : [room.bozos.get(msg.to)].filter(Boolean)
 
-    for (const guest of targets) {
-      if (guest.closed) continue
-      if (msg.evict) guest.close()
-      else if (msg.bin) guest.sendBinary(Buffer.from(msg.bin, 'base64'))
-      else if (msg.payload !== undefined) guest.sendJson(msg.payload)
+    for (const bozo of targets) {
+      if (bozo.closed) continue
+      if (msg.evict) bozo.close()
+      else if (msg.bin) bozo.sendBinary(Buffer.from(msg.bin, 'base64'))
+      else if (msg.payload !== undefined) bozo.sendJson(msg.payload)
     }
   }
 }

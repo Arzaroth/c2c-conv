@@ -102,7 +102,7 @@ export async function capturePlain(name) {
   return stdout
 }
 
-// The live stream positions the cursor relatively, so a guest seeded with a
+// The live stream positions the cursor relatively, so a bozo seeded with a
 // snapshot has to start from the host's actual cursor or every later redraw
 // lands a row off.
 export async function cursor(name) {
@@ -174,7 +174,7 @@ export async function paneState(name) {
 }
 
 // Anything sitting in the input box is the host's unsent draft, and injecting
-// would splice guest text into the middle of it. null means the box is not on
+// would splice bozo text into the middle of it. null means the box is not on
 // screen, which is not the same as it being empty.
 export async function promptDraft(name) {
   return readPromptBox(await capturePlain(name))
@@ -190,7 +190,7 @@ export async function waitForPrompt(name, timeoutMs = 15000) {
   return state
 }
 
-// -l sends the text literally so guest input can never be read as a tmux key
+// -l sends the text literally so bozo input can never be read as a tmux key
 // name, and -- stops a leading dash from being parsed as a flag.
 export async function sendText(name, text) {
   await tmux(['send-keys', '-t', name, '-l', '--', text])

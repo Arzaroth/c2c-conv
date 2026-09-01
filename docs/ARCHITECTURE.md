@@ -1,7 +1,7 @@
 # Architecture
 
 ```
-        host terminal                         guest browser
+        host terminal                         bozo browser
              |                                      |
         tmux attach                            xterm.js  <--- pane bytes
              |                                      |     ---> submissions
@@ -26,7 +26,7 @@ the part rather than because it is on theme:
   the ring. `relay` undersold it, since it arbitrates rather than forwards.
 - **gallery** and **ring** are the two modes. The gallery is the cheap seats:
   watching and heckling, no power. The ring is where the act happens, and a
-  guest there acts as the host. `yolo` shouted the danger, so the docs have to
+  bozo there acts as the host. `yolo` shouted the danger, so the docs have to
   keep shouting it now that the name is quieter.
 
 Vocabulary owned by the tools underneath - tmux panes and sessions, websocket
@@ -41,33 +41,33 @@ spectator`, `mode yolo`) so anything already written against them keeps working.
 **tmux session** (`src/tmux.js`)
 Owns the `claude` process. Runs on a dedicated tmux server (`-L c2c`) so it never
 collides with the host's own tmux. Output leaves via `pipe-pane` into a file;
-input enters via `send-keys -l --`, which sends text literally so guest input can
+input enters via `send-keys -l --`, which sends text literally so bozo input can
 never be interpreted as a tmux key name.
 
 **Ringmaster** (`src/ringmaster.js`)
 A detached node process. Tails the pane file, hands raw bytes to every active
 transport, holds the policy state, and exposes a unix control socket for the host.
-It knows nothing about how a guest arrived.
+It knows nothing about how a bozo arrived.
 
 **Transports** (`src/transport/`)
-`LocalTransport` serves the guest client over http and accepts websocket
+`LocalTransport` serves the bozo client over http and accepts websocket
 upgrades. `BigtopTransport` dials out to a bigtop and multiplexes
-every guest in the room over that one socket. Both emit `guest` channels with the
+every bozo in the room over that one socket. Both emit `bozo` channels with the
 same shape, and both expose `broadcastBinary` so pane bytes cross an uplink once
-rather than once per guest.
+rather than once per bozo.
 
 **Policy** (`src/policy.js`)
-The mode ladder. `gallery` (default) queues guest submissions for host
+The mode ladder. `gallery` (default) queues bozo submissions for host
 approval; `ring` injects them immediately. Mode lives only in the ringmaster and is
-only mutable through the host's control socket, so a guest can never self-promote.
+only mutable through the host's control socket, so a bozo can never self-promote.
 
 **Websocket** (`src/ws.js`)
 RFC 6455 server implemented directly on `node:http` upgrades. Zero dependencies,
 so the whole thing runs with nothing installed.
 
-**Guest client** (`web/`)
+**Bozo client** (`web/`)
 Read-only xterm.js mirror plus a compose box and a keypad. The terminal has
-`disableStdin`, so the only way a guest reaches the session is through the policy
+`disableStdin`, so the only way a bozo reaches the session is through the policy
 gate.
 
 ## Two channels, not one
@@ -82,28 +82,28 @@ opposite problems:
 | allowed in gallery | queued for approval | **refused outright** |
 | allowed in ring | yes | yes |
 
-Text must never reach a dialog, or a guest message becomes an answer to a
-permission prompt. Keys must reach dialogs, or the guest is stuck the moment
+Text must never reach a dialog, or a bozo message becomes an answer to a
+permission prompt. Keys must reach dialogs, or the bozo is stuck the moment
 Claude asks anything. Keys are ring-only rather than a third rung on the ladder:
 answering a dialog is a side effect by definition, and queueing individual arrow
 presses for host approval would be unusable.
 
 The key allowlist is arrows, Enter, Escape, Tab, Backspace and digits 1-9.
-Nothing else is accepted, so a guest cannot send `C-c` or arbitrary control
-sequences. The gate lives in the ringmaster, not the UI: a guest opening their own
+Nothing else is accepted, so a bozo cannot send `C-c` or arbitrary control
+sequences. The gate lives in the ringmaster, not the UI: a bozo opening their own
 websocket and sending a raw key still gets refused.
 
 The ringmaster polls pane state once a second and broadcasts changes, which is how the
-client knows to reveal the keypad. The same poll covers two things guests would
+client knows to reveal the keypad. The same poll covers two things bozos would
 otherwise never see:
 
 - **Pane geometry.** tmux resizes the pane to whatever client attaches, so the
-  grid changes under guests who would keep rendering the old one. A size change
+  grid changes under bozos who would keep rendering the old one. A size change
   broadcasts a `resize` and a fresh snapshot. This matters in normal use, since
   `c2c host` attaches by default.
 - **Pane file size.** `pipe-pane` appends for the lifetime of the session, so
   the file is rotated past 8MB. Rotating loses the bytes written between stop
-  and start, so guests get a fresh snapshot rather than a stream with a hole in
+  and start, so bozos get a fresh snapshot rather than a stream with a hole in
   it.
 
 ## Why the pane and not the transcript
@@ -115,9 +115,9 @@ source of truth; the transcript is optional enrichment.
 
 ## The transcript stream
 
-`src/transcript.js` tails the session's JSONL and gives guests a readable
+`src/transcript.js` tails the session's JSONL and gives bozos a readable
 conversation alongside the mirror. It solves the one thing the mirror cannot: a
-guest joining late sees only the current screen, while the transcript has every
+bozo joining late sees only the current screen, while the transcript has every
 turn from the start.
 
 **Finding the right file.** The project directory holds a transcript per
@@ -128,18 +128,18 @@ name the file. tmux may run the pane command through a shell, so the pane pid's
 children are checked too.
 
 **It is never load-bearing.** Locating retries rather than failing, every parse
-is wrapped, and if any of it breaks the mirror is unaffected and guests simply
+is wrapped, and if any of it breaks the mirror is unaffected and bozos simply
 have no history panel. That is the deal with an undocumented format.
 
 **What is emitted.** User turns and assistant turns, with tool calls reduced to
 their names. Tool *results* are dropped: they carry whole files and command
 output, and a user-role record holding a `tool_result` is not something a person
-said. Guests see all of it in the mirror anyway, so this is about readability,
+said. Bozos see all of it in the mirror anyway, so this is about readability,
 not concealment.
 
 ## Transport ladder
 
-A transport owes the ringmaster two operations: *stream these bytes to the guest* and
+A transport owes the ringmaster two operations: *stream these bytes to the bozo* and
 *submit this text*. Everything above it is transport-agnostic, so the rungs are
 additive and can run simultaneously.
 
@@ -150,10 +150,10 @@ additive and can run simultaneously.
 
 Full detail, wire protocol and deployment: [TRANSPORTS.md](TRANSPORTS.md).
 
-## Limits on what a guest can send
+## Limits on what a bozo can send
 
 The ringmaster accepts a socket from someone else, over a bigtop possibly from
-anywhere with the token, so guest input is bounded at both layers:
+anywhere with the token, so bozo input is bounded at both layers:
 
 - **Frames are capped at 1MB.** A peer can declare a payload length of up to
   2^53 and then send nothing; without a cap the receive buffer grows until the
@@ -161,7 +161,7 @@ anywhere with the token, so guest input is bounded at both layers:
   fragments that only exceed the cap once reassembled all close the connection.
 - **Messages are capped at 8000 characters.** Longer than that is not a prompt
   somebody typed.
-- **The pending queue is capped at 50.** It is the one thing a guest can grow
+- **The pending queue is capped at 50.** It is the one thing a bozo can grow
   without the host agreeing to anything, so it cannot be unbounded. Verified
   against a live ringmaster with a declared 4GiB frame: connection closed, resident
   memory unchanged, ringmaster healthy.
@@ -172,15 +172,15 @@ The token in the URL is the only credential. It is generated per session and
 never written to a world-readable place. State lives in `~/.c2c-conv/<session>/`
 at mode 0700.
 
-In `gallery` the guest cannot cause any side effect: submissions sit in a queue
+In `gallery` the bozo cannot cause any side effect: submissions sit in a queue
 until the host releases them.
 
 **The injection guard is part of this, not a nicety.** `send-keys` of text plus
 `Enter` into a session that is showing a modal types into nothing and then
 confirms whatever option is highlighted. Found the hard way during the first
-end-to-end run: an approved guest message arrived while the workspace-trust
+end-to-end run: an approved bozo message arrived while the workspace-trust
 dialog was up, and the trailing Enter selected `No, exit` and killed the session.
-The same mechanism would let an innocuous-looking guest message confirm a
+The same mechanism would let an innocuous-looking bozo message confirm a
 permission prompt, which would defeat the whole point of gallery mode. So every
 write path goes through `tmux.waitForPrompt` first: it waits out a running turn,
 but refuses outright on a dialog and tells the host the message was held.
@@ -188,7 +188,7 @@ but refuses outright on a dialog and tells the host the message was held.
 State detection reads an *uncoloured* `capture-pane`. With `-e`, tmux wraps each
 individual word in its own SGR pair, so phrase matching silently never matches.
 
-In `ring` the guest can run arbitrary code as the host. There is no way to offer
+In `ring` the bozo can run arbitrary code as the host. There is no way to offer
 "send prompts freely" without this, because a prompt can ask for anything. The
 mitigation is social, not technical: only elevate for someone you would hand your
 keyboard to.
@@ -196,7 +196,7 @@ keyboard to.
 ## Input arbitration
 
 Two writers on one pty interleave. Concretely: the host is mid-typing
-`deploy to prod` when an approved guest message injects, the text splices into
+`deploy to prod` when an approved bozo message injects, the text splices into
 the half-written line, and the trailing Enter submits something neither of them
 wrote. Three mechanisms stop that:
 
@@ -232,7 +232,7 @@ pane away from claude and turns it into a copy-mode buffer. Pressing
 prints its JSON reply.
 
 The failure that followed was worse than a cosmetic one. With the pane in
-copy-mode, the injected guest text was read as copy-mode *keystrokes*: the `t`
+copy-mode, the injected bozo text was read as copy-mode *keystrokes*: the `t`
 in "nothing" hit copy-mode's `t` binding, which opens a `(jump to forward)`
 command prompt, and `send-keys` then blocked forever feeding that prompt. One
 hung call wedged the write queue for the rest of the session.
@@ -283,7 +283,7 @@ what unit tests can reach.
 
 But every bug in this project that cost real time lived in the tmux
 integration, not in pure logic: text injected into copy mode wedging the write
-queue, guest text being read as a tmux key, bindings pointing at the wrong
+queue, bozo text being read as a tmux key, bindings pointing at the wrong
 session. So `test/tmux.integration.test.js` drives a real tmux server running a
 plain shell and pins those specific failures. Each of its guards was checked by
 reintroducing the bug and confirming the test goes red - one of them did not,

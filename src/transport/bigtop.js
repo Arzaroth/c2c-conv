@@ -3,9 +3,9 @@ import { EventEmitter } from 'node:events'
 const BACKOFF_MIN = 500
 const BACKOFF_MAX = 15000
 
-// One outbound socket carries every guest in the room, so guest-addressed
-// traffic is enveloped and broadcasts are sent once rather than per guest.
-class BigtopGuest extends EventEmitter {
+// One outbound socket carries every bozo in the room, so bozo-addressed
+// traffic is enveloped and broadcasts are sent once rather than per bozo.
+class BigtopBozo extends EventEmitter {
   closed = false
   origin = 'bigtop'
 
@@ -38,7 +38,7 @@ export class BigtopTransport extends EventEmitter {
   #room
   #token
   #socket = null
-  #guests = new Map()
+  #bozos = new Map()
   #backoff = BACKOFF_MIN
   #diagnosed = false
   #stopped = false
@@ -51,7 +51,7 @@ export class BigtopTransport extends EventEmitter {
     this.#token = token
   }
 
-  get guestUrl() {
+  get bozoUrl() {
     const http = this.#url.replace(/^ws/, 'http')
     return `${http}/r/${encodeURIComponent(this.#room)}?t=${encodeURIComponent(this.#token)}`
   }
@@ -67,8 +67,8 @@ export class BigtopTransport extends EventEmitter {
   async stop() {
     this.#stopped = true
     clearTimeout(this.#timer)
-    for (const guest of this.#guests.values()) guest.close()
-    this.#guests.clear()
+    for (const bozo of this.#bozos.values()) bozo.close()
+    this.#bozos.clear()
     this.#socket?.close()
   }
 
@@ -89,7 +89,7 @@ export class BigtopTransport extends EventEmitter {
   }
 
   evict(id) {
-    this.#guests.delete(id)
+    this.#bozos.delete(id)
     this.#send(JSON.stringify({ to: id, evict: true }))
   }
 
@@ -131,8 +131,8 @@ export class BigtopTransport extends EventEmitter {
     })
 
     socket.addEventListener('close', (event) => {
-      for (const guest of this.#guests.values()) guest.close()
-      this.#guests.clear()
+      for (const bozo of this.#bozos.values()) bozo.close()
+      this.#bozos.clear()
       this.emit('status', { connected: false, code: event.code, reason: event.reason })
       this.#diagnose()
       this.#retry()
@@ -145,23 +145,23 @@ export class BigtopTransport extends EventEmitter {
 
   #dispatch(msg) {
     if (msg.event === 'join') {
-      const guest = new BigtopGuest(msg.from, this)
-      this.#guests.set(msg.from, guest)
-      this.emit('guest', guest)
+      const bozo = new BigtopBozo(msg.from, this)
+      this.#bozos.set(msg.from, bozo)
+      this.emit('bozo', bozo)
       return
     }
     if (msg.event === 'leave') {
-      const guest = this.#guests.get(msg.from)
-      if (guest) {
-        this.#guests.delete(msg.from)
-        guest.closed = true
-        guest.emit('close')
+      const bozo = this.#bozos.get(msg.from)
+      if (bozo) {
+        this.#bozos.delete(msg.from)
+        bozo.closed = true
+        bozo.emit('close')
       }
       return
     }
     if (msg.event === 'message') {
-      const guest = this.#guests.get(msg.from)
-      if (guest) guest.emit('text', JSON.stringify(msg.payload))
+      const bozo = this.#bozos.get(msg.from)
+      if (bozo) bozo.emit('text', JSON.stringify(msg.payload))
     }
   }
 

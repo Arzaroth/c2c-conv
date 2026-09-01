@@ -1,8 +1,8 @@
 export const GALLERY = 'gallery'
-export const RING = 'ring'
+export const YOLO = 'yolo'
 
 // A message longer than this is not a prompt someone typed, and the queue is
-// what a guest can grow without the host agreeing to anything.
+// what a bozo can grow without the host agreeing to anything.
 export const MAX_TEXT = 8000
 export const MAX_PENDING = 50
 
@@ -22,7 +22,7 @@ export class Policy {
   }
 
   setMode(mode) {
-    if (mode !== GALLERY && mode !== RING) {
+    if (mode !== GALLERY && mode !== YOLO) {
       throw new Error(`unknown mode: ${mode}`)
     }
     const changed = this.#mode !== mode
@@ -40,15 +40,15 @@ export class Policy {
     for (const fn of this.#listeners) fn(event)
   }
 
-  submit({ text, guest }) {
+  submit({ text, bozo }) {
     const clean = normalize(text)
     if (!clean) return { action: 'ignored' }
     if (clean.length > MAX_TEXT) {
       return { action: 'rejected', reason: 'too long' }
     }
 
-    if (this.#mode === RING) {
-      this.#emit({ type: 'sent', text: clean, guest })
+    if (this.#mode === YOLO) {
+      this.#emit({ type: 'sent', text: clean, bozo })
       return { action: 'send', text: clean }
     }
 
@@ -57,7 +57,7 @@ export class Policy {
     }
 
     const id = this.#nextId++
-    const entry = { id, text: clean, guest, at: Date.now() }
+    const entry = { id, text: clean, bozo, at: Date.now() }
     this.#pending.set(id, entry)
     this.#emit({ type: 'queued', ...entry })
     return { action: 'queued', id }
@@ -66,10 +66,10 @@ export class Policy {
   // Answering a dialog is a side effect by definition, and queueing individual
   // arrow presses for approval would be unusable, so keys are a ring-only
   // capability rather than a third thing on the ladder.
-  submitKey({ key, guest }) {
+  submitKey({ key, bozo }) {
     if (!ALLOWED_KEYS.has(key)) return { action: 'rejected', reason: 'unknown key' }
-    if (this.#mode !== RING) return { action: 'refused', reason: 'gallery' }
-    this.#emit({ type: 'key', key, guest })
+    if (this.#mode !== YOLO) return { action: 'refused', reason: 'gallery' }
+    this.#emit({ type: 'key', key, bozo })
     return { action: 'send', key }
   }
 
@@ -108,7 +108,7 @@ export class Policy {
   }
 }
 
-// The prompt box submits on Enter, so a raw newline inside guest text would
+// The prompt box submits on Enter, so a raw newline inside bozo text would
 // split one message into several turns.
 function normalize(text) {
   if (typeof text !== 'string') return ''

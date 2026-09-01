@@ -1,6 +1,6 @@
 // Every bug that cost real time in this project lived in the tmux integration,
 // not in the pure logic: text injected into copy mode wedging the write queue,
-// guest text being read as tmux keys, bindings pointing at the wrong session.
+// bozo text being read as tmux keys, bindings pointing at the wrong session.
 // None of that is reachable from a unit test, so these drive a real tmux server.
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -40,11 +40,11 @@ test('the session comes up and the pane is alive', { skip: !available }, async (
   assert.equal(rows, 20)
 })
 
-// The guarantee that guest input can never act as a tmux key. tmux falls back
+// The guarantee that bozo input can never act as a tmux key. tmux falls back
 // to literal text for anything it does not recognise as a key name, so this
 // only bites when the text is exactly one: "C-u" as a key clears the line,
 // while as text it is three characters. Without -l this test fails.
-test('guest text is sent literally, never as a key name', { skip: !available }, async () => {
+test('bozo text is sent literally, never as a key name', { skip: !available }, async () => {
   await raw(['send-keys', '-t', NAME, 'C-u'])
   await tmux.sendText(NAME, 'marker')
   await tmux.sendText(NAME, 'C-u')
@@ -112,7 +112,7 @@ test('host bindings produce no output for tmux to display', { skip: !available }
   }
 })
 
-test('the cursor position is readable for seeding a guest', { skip: !available }, async () => {
+test('the cursor position is readable for seeding a bozo', { skip: !available }, async () => {
   const { x, y } = await tmux.cursor(NAME)
   assert.ok(Number.isInteger(x) && x >= 0)
   assert.ok(Number.isInteger(y) && y >= 0)

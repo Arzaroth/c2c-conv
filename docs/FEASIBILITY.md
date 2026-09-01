@@ -5,7 +5,7 @@ on a live session, not inferred from documentation.
 
 ## The requirement
 
-A guest must be able to (a) watch a Claude Code session in realtime and (b) send
+A bozo must be able to (a) watch a Claude Code session in realtime and (b) send
 messages that the session treats exactly as if the host had typed them.
 
 Part (b) is the hard half. A message that arrives visibly second-class does not
@@ -15,7 +15,7 @@ meet the bar.
 
 ### 1. Keystroke injection into a PTY - chosen
 
-Run `claude` inside tmux, deliver guest text with `tmux send-keys`.
+Run `claude` inside tmux, deliver bozo text with `tmux send-keys`.
 
 Verified by spike: started a real session in an isolated tmux server, injected a
 prompt with `send-keys`, then inspected the resulting record in
@@ -59,12 +59,12 @@ Claude Code sessions already talk to each other. Each interactive session writes
 logged under the `[uds-messaging]` tag, with SO_PEERCRED verification of the
 connecting process. This is what the `ListAgents` and `SendMessage` tools ride on.
 
-It is disqualified for guest input. Strings extracted from the binary show
+It is disqualified for bozo input. Strings extracted from the binary show
 inbound peer messages are wrapped in `<cross-session-message>`, and the receiving
 session's own system prompt states that cross-session messages are **never user
-intent**. A guest message delivered this way arrives explicitly downgraded.
+intent**. A bozo message delivered this way arrives explicitly downgraded.
 
-Still useful for out-of-band signalling between tooling. Not for the guest.
+Still useful for out-of-band signalling between tooling. Not for the bozo.
 
 ## Read path
 
@@ -94,7 +94,7 @@ c2c-conv is not redundant with it.
   trailing Enter confirms the highlighted option. Mitigated by the injection
   guard, see [ARCHITECTURE.md](ARCHITECTURE.md#security-model).
 - Two writers on one PTY can interleave. Needs input arbitration.
-- Guest text containing newlines would submit mid-message, so newlines are
+- Bozo text containing newlines would submit mid-message, so newlines are
   collapsed to spaces before injection.
-- In ring mode a guest has arbitrary code execution as the host. This is inherent
+- In yolo mode a bozo has arbitrary code execution as the host. This is inherent
   to the requirement, not a fixable defect. It has to be loud in the UI.

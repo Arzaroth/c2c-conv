@@ -79,7 +79,7 @@ export class LocalTransport extends EventEmitter {
       const body = await readFile(join(WEB_ROOT, file))
       res.writeHead(200, {
         'content-type': MIME[extname(file)] || 'application/octet-stream',
-        // A guest holding a cached client against an updated ringmaster is a
+        // A bozo holding a cached client against an updated ringmaster is a
         // confusing failure that looks like a broken feature.
         'cache-control': 'no-cache, no-store, must-revalidate',
       })
@@ -105,6 +105,6 @@ export class LocalTransport extends EventEmitter {
     ws.origin = 'local'
     this.#channels.add(ws)
     ws.on('close', () => this.#channels.delete(ws))
-    this.emit('guest', ws)
+    this.emit('bozo', ws)
   }
 }

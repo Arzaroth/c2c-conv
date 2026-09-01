@@ -5,7 +5,7 @@ import { randomBytes } from 'node:crypto'
 import * as tmux from './tmux.js'
 import { PaneStream } from './panestream.js'
 import { TranscriptStream } from './transcript.js'
-import { Policy, GALLERY, RING } from './policy.js'
+import { Policy, GALLERY, YOLO } from './policy.js'
 import { LocalTransport } from './transport/local.js'
 import { BigtopTransport } from './transport/bigtop.js'
 import { controlSocket, ensureStateDir, metaFile, paneFile, statusFile } from './paths.js'
@@ -17,7 +17,7 @@ export class Ringmaster {
   #session
   #token
   #policy = new Policy()
-  #guests = new Map()
+  #bozos = new Map()
   #transports = []
   #pane = null
   #control = null
@@ -76,7 +76,7 @@ export class Ringmaster {
     this.#policy.onEvent((event) => this.#onPolicyEvent(event))
 
     for (const transport of this.#transports) {
-      transport.on('guest', (channel) => this.#onGuest(channel))
+      transport.on('bozo', (channel) => this.#onGuest(channel))
       transport.on('status', (status) => {
         this.#bigtopStatus = status
         console.log(`[bigtop] ${JSON.stringify(status)}`)
@@ -104,7 +104,7 @@ export class Ringmaster {
     this.#broadcastJson({ type: 'notice', text })
   }
 
-  // Distinct from a notice so guests know not to keep reconnecting.
+  // Distinct from a notice so bozos know not to keep reconnecting.
   announceEnd(text) {
     this.#broadcastJson({ type: 'bye', text })
   }
@@ -134,7 +134,7 @@ export class Ringmaster {
         }
 
         // tmux resizes the pane to whatever client attaches, so the geometry
-        // changes under guests who would otherwise keep rendering the old grid.
+        // changes under bozos who would otherwise keep rendering the old grid.
         const size = await tmux.paneSize(this.#session)
         if (size.cols !== this.#paneSize.cols || size.rows !== this.#paneSize.rows) {
           this.#paneSize = size
@@ -164,7 +164,7 @@ export class Ringmaster {
   }
 
   // pipe-pane appends for the lifetime of the session. Rotating loses the bytes
-  // written between stop and start, so guests get a fresh snapshot afterwards
+  // written between stop and start, so bozos get a fresh snapshot afterwards
   // rather than a stream with a hole in it.
   async #rotatePaneFile() {
     const file = paneFile(this.#session)
@@ -186,39 +186,49 @@ export class Ringmaster {
       port: local.port,
       token: this.#token,
       url: local.url,
-      bigtop: this.bigtop ? { url: this.bigtop.guestUrl } : null,
+      bigtop: this.bigtop ? { url: this.bigtop.bozoUrl } : null,
     }
   }
 
   async #onGuest(channel) {
-    const guest = { id: channel.id, name: 'guest', origin: channel.origin, channel }
-    this.#guests.set(channel.id, guest)
+    const bozo = { id: channel.id, name: 'bozo', origin: channel.origin, channel }
+    this.#bozos.set(channel.id, bozo)
 
-    channel.on('text', (raw) => this.#onGuestMessage(guest, raw))
+    channel.on('text', (raw) => this.#onGuestMessage(bozo, raw))
     channel.on('close', () => {
-      this.#guests.delete(channel.id)
+      this.#bozos.delete(channel.id)
       this.#writeStatusLine()
-      this.#notifyHost(`c2c: ${guest.name} left (${this.#guests.size} connected)`)
+      this.#notifyHost(`c2c: ${bozo.name} left (${this.#bozos.size} connected)`)
     })
 
+    // The bozo speaks first, with its name. Answering only once it has hoinked
+    // means the host is told who arrived rather than that someone did.
+  }
+
+  async #hoink(bozo, name) {
+    if (typeof name === 'string') {
+      bozo.name = name.slice(0, 40).replace(/[^\w .-]/g, '') || 'bozo'
+    }
+
     const { cols, rows } = await tmux.paneSize(this.#session)
-    channel.sendJson({
-      type: 'hello',
+    bozo.channel.sendJson({
+      type: 'hoink',
       mode: this.#policy.mode,
       state: this.#paneState,
       cols,
       rows,
-      guestId: guest.id,
+      bozoId: bozo.id,
+      name: bozo.name,
     })
-    await this.#sendScreen(channel)
+    await this.#sendScreen(bozo.channel)
     if (this.#history.length) {
-      channel.sendJson({ type: 'transcript:history', entries: this.#history })
+      bozo.channel.sendJson({ type: 'transcript:history', entries: this.#history })
     }
     this.#writeStatusLine()
-    this.#notifyHost(`c2c: a guest connected via ${channel.origin} (${this.#guests.size} connected)`)
+    this.#notifyHost(`c2c: ${bozo.name} hoinked in via ${bozo.origin} (${this.#bozos.size} here)`)
   }
 
-  #onGuestMessage(guest, raw) {
+  #onGuestMessage(bozo, raw) {
     let msg
     try {
       msg = JSON.parse(raw)
@@ -226,36 +236,42 @@ export class Ringmaster {
       return
     }
 
-    if (msg.type === 'name' && typeof msg.name === 'string') {
-      guest.name = msg.name.slice(0, 40).replace(/[^\w .-]/g, '') || 'guest'
-      guest.channel.sendJson({ type: 'named', name: guest.name })
+    if (msg.type === 'hoink') {
+      this.#hoink(bozo, msg.name)
       return
     }
 
-    // A browser guest renders the live byte stream, so it only needs a snapshot
-    // when it joins. A programmatic guest has no terminal emulator and has to
+    if (msg.type === 'name' && typeof msg.name === 'string') {
+      bozo.name = msg.name.slice(0, 40).replace(/[^\w .-]/g, '') || 'bozo'
+      bozo.channel.sendJson({ type: 'named', name: bozo.name })
+      this.#writeStatusLine()
+      return
+    }
+
+    // A browser bozo renders the live byte stream, so it only needs a snapshot
+    // when it joins. A programmatic bozo has no terminal emulator and has to
     // be able to ask for the current screen.
     if (msg.type === 'refresh') {
-      this.#sendScreen(guest.channel)
+      this.#sendScreen(bozo.channel)
       return
     }
 
     if (msg.type === 'key') {
-      const result = this.#policy.submitKey({ key: msg.key, guest: guest.name })
+      const result = this.#policy.submitKey({ key: msg.key, bozo: bozo.name })
       if (result.action === 'send') this.#pressKey(result.key)
-      else guest.channel.sendJson({ type: 'key:refused', key: msg.key, reason: result.reason })
+      else bozo.channel.sendJson({ type: 'key:refused', key: msg.key, reason: result.reason })
       return
     }
 
     if (msg.type === 'submit') {
-      const result = this.#policy.submit({ text: msg.text, guest: guest.name })
+      const result = this.#policy.submit({ text: msg.text, bozo: bozo.name })
       if (result.action === 'send') {
         this.#inject(result.text)
-        guest.channel.sendJson({ type: 'accepted', text: result.text })
+        bozo.channel.sendJson({ type: 'accepted', text: result.text })
       } else if (result.action === 'queued') {
-        guest.channel.sendJson({ type: 'pending', id: result.id, text: msg.text })
+        bozo.channel.sendJson({ type: 'pending', id: result.id, text: msg.text })
       } else if (result.action === 'rejected') {
-        guest.channel.sendJson({ type: 'rejected', reason: result.reason })
+        bozo.channel.sendJson({ type: 'rejected', reason: result.reason })
       }
     }
   }
@@ -274,10 +290,10 @@ export class Ringmaster {
     this.#writes = this.#writes
       .then(() => this.#injectNow(text))
       .catch((err) => {
-        // A guest message disappearing without a trace is the worst possible
+        // A bozo message disappearing without a trace is the worst possible
         // failure here, so a broken write is loud on both sides.
         console.error(`[inject] failed: ${err?.message ?? err}`)
-        this.#notifyHost(`c2c: FAILED to deliver a guest message - ${err?.message ?? err}`)
+        this.#notifyHost(`c2c: FAILED to deliver a bozo message - ${err?.message ?? err}`)
         this.#broadcastJson({ type: 'policy:held', state: 'error', text })
         return false
       })
@@ -326,7 +342,7 @@ export class Ringmaster {
       error: 'the write failed',
     }[reason] ?? `pane is ${reason}`
     console.log(`[inject] held: ${reason}`)
-    this.#notifyHost(`c2c: HELD a guest message, ${detail}`)
+    this.#notifyHost(`c2c: HELD a bozo message, ${detail}`)
     this.#broadcastJson({ type: 'policy:held', state: reason, text })
     return false
   }
@@ -334,13 +350,13 @@ export class Ringmaster {
   #onPolicyEvent(event) {
     if (event.type === 'approved') {
       this.#inject(event.text)
-      this.#notifyHost(`c2c: released #${event.id} from ${event.guest}`)
+      this.#notifyHost(`c2c: released #${event.id} from ${event.bozo}`)
     }
     if (event.type === 'denied') {
-      this.#notifyHost(`c2c: dropped #${event.id} from ${event.guest}`)
+      this.#notifyHost(`c2c: dropped #${event.id} from ${event.bozo}`)
     }
     if (event.type === 'queued') {
-      this.#notifyHost(`c2c: ${event.guest} wants to send #${event.id} - prefix+a to release`)
+      this.#notifyHost(`c2c: ${event.bozo} wants to send #${event.id} - prefix+a to release`)
     }
     if (event.type === 'mode') {
       this.#notifyHost(`c2c: mode is now ${event.mode}`)
@@ -357,12 +373,12 @@ export class Ringmaster {
   // process spawned every couple of seconds.
   async #writeStatusLine() {
     const pending = this.#policy.list().length
-    const guests = this.#guests.size
-    const mode = this.#policy.mode === RING ? '#[fg=#ff2e4c,bold]RING' : '#[fg=#ffd93d]gallery'
+    const bozos = this.#bozos.size
+    const mode = this.#policy.mode === YOLO ? '#[fg=#ff2e4c,bold]YOLO' : '#[fg=#ffd93d]gallery'
 
     const parts = [
       `#[fg=#9a90b0]c2c ${mode}#[default]`,
-      `#[fg=#9a90b0]${guests} guest${guests === 1 ? '' : 's'}`,
+      `#[fg=#9a90b0]${bozos} bozo${bozos === 1 ? '' : 's'}`,
     ]
     if (pending) {
       parts.push(`#[fg=#ffd93d,bold]${pending} waiting#[default] #[fg=#9a90b0](prefix+a approve, prefix+d deny)`)
@@ -417,16 +433,16 @@ export class Ringmaster {
           ok: true,
           session: this.#session,
           mode: this.#policy.mode,
-          guests: [...this.#guests.values()].map((g) => ({ id: g.id, name: g.name, via: g.origin })),
+          bozos: [...this.#bozos.values()].map((g) => ({ id: g.id, name: g.name, via: g.origin })),
           pending: this.#policy.list(),
           url: this.url,
           bigtop: this.bigtop
-            ? { url: this.bigtop.guestUrl, connected: this.bigtop.connected, last: this.#bigtopStatus }
+            ? { url: this.bigtop.bozoUrl, connected: this.bigtop.connected, last: this.#bigtopStatus }
             : null,
         }
       case 'mode': {
         const next = msg.mode === 'toggle'
-          ? (this.#policy.mode === RING ? GALLERY : RING)
+          ? (this.#policy.mode === YOLO ? GALLERY : YOLO)
           : msg.mode
         return { ok: true, mode: this.#policy.setMode(next) }
       }
@@ -457,7 +473,7 @@ export class Ringmaster {
       case 'deny-all':
         return { ok: true, denied: this.#policy.denyAll() }
       case 'stop':
-        // Same courtesy the watchdog path gives: tell guests before going, and
+        // Same courtesy the watchdog path gives: tell bozos before going, and
         // clean up rather than exiting on the spot.
         this.announceEnd('the session ended')
         setTimeout(async () => {
