@@ -254,6 +254,22 @@ are pure functions with their own tests:
 - **No input box is `null`, not `''`.** The box vanishes briefly during redraws,
   and conflating that with "empty" is what made the settle step necessary.
 
+## Tests
+
+Most of the suite is pure logic - the policy gate, the websocket framing, the
+screen parsing, the transcript records, the broker protocol - because that is
+what unit tests can reach.
+
+But every bug in this project that cost real time lived in the tmux
+integration, not in pure logic: text injected into copy mode wedging the write
+queue, guest text being read as a tmux key, bindings pointing at the wrong
+session. So `test/tmux.integration.test.js` drives a real tmux server running a
+plain shell and pins those specific failures. Each of its guards was checked by
+reintroducing the bug and confirming the test goes red - one of them did not,
+and was rewritten until it did. tmux falls back to literal text for anything it
+does not recognise as a key name, so the literal-send test only bites when the
+payload is exactly a key name like `C-u`.
+
 ## Open work
 
 - Pane geometry is fixed at 200x50 until a client attaches; no flag for it yet.

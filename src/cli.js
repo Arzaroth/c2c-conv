@@ -13,7 +13,6 @@ import { Relay } from './relay.js'
 import { controlSocket, ensureStateDir, metaFile, stateDir, statusFile } from './paths.js'
 
 const SELF = fileURLToPath(import.meta.url)
-const ROOT = join(dirname(SELF), '..')
 
 const DEFAULTS = { session: 'c2c', port: 7331, host: '127.0.0.1' }
 

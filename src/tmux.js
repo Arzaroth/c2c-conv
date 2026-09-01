@@ -3,18 +3,21 @@ import { promisify } from 'node:util'
 
 const run = promisify(execFile)
 
-const SERVER = 'c2c'
+export const SERVER = 'c2c'
 
-// The c2c server starts with no config at all. Loading the host's ~/.tmux.conf
-// would let their prefix, key tables, status bar and plugins decide what c2c's
-// documented keys do, and would fight the status line. A shared session has to
-// behave the same way on everyone's machine, so the prefix here is always the
-// tmux default regardless of what the host uses elsewhere.
+// -f /dev/null: the c2c server starts with no config at all. Loading the host's
+// ~/.tmux.conf would let their prefix, key tables, status bar and plugins decide
+// what c2c's documented keys do, and would fight the status line. A shared
+// session has to behave the same way on everyone's machine, so the prefix here
+// is always the tmux default regardless of what the host uses elsewhere.
+// Exported so tests can drive the same server the implementation uses.
+export const SERVER_ARGS = ['-L', SERVER, '-f', '/dev/null']
+
 // The timeout matters: send-keys blocks indefinitely if the pane is sitting at
 // a tmux command prompt, and a hung call would wedge the write queue for the
 // rest of the session.
 function tmux(args) {
-  return run('tmux', ['-L', SERVER, '-f', '/dev/null', ...args], {
+  return run('tmux', [...SERVER_ARGS, ...args], {
     maxBuffer: 16 * 1024 * 1024,
     timeout: 10000,
   })

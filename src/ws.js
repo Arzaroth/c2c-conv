@@ -14,10 +14,6 @@ const CLOSE = 0x8
 const PING = 0x9
 const PONG = 0xa
 
-export function isUpgrade(req) {
-  return (req.headers.upgrade || '').toLowerCase() === 'websocket'
-}
-
 export function handshake(req, socket) {
   const key = req.headers['sec-websocket-key']
   if (!key) {
