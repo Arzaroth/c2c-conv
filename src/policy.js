@@ -68,7 +68,7 @@ export class Policy {
   }
 
   // Answering a dialog is a side effect by definition, and queueing individual
-  // arrow presses for approval would be unusable, so keys are a ring-only
+  // arrow presses for approval would be unusable, so keys are a yolo-only
   // capability rather than a third thing on the ladder.
   submitKey({ key, bozo }) {
     if (!ALLOWED_KEYS.has(key)) return { action: 'rejected', reason: 'unknown key' }

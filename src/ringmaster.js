@@ -32,9 +32,11 @@ export class Ringmaster {
   #tunnel = null
   #tunnelUrl = null
   #wantsTunnel = false
+  #startMode = null
 
-  constructor({ session, port, host = '127.0.0.1', token, bigtop, tunnel = false }) {
+  constructor({ session, port, host = '127.0.0.1', token, bigtop, tunnel = false, mode }) {
     this.#wantsTunnel = tunnel
+    this.#startMode = mode || null
     this.#session = session
     this.#token = token || randomBytes(16).toString('hex')
 
@@ -78,6 +80,7 @@ export class Ringmaster {
     })
     await this.#pane.start()
 
+    if (this.#startMode) this.#policy.setMode(this.#startMode)
     this.#policy.onEvent((event) => this.#onPolicyEvent(event))
 
     for (const transport of this.#transports) {

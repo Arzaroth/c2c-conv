@@ -294,7 +294,7 @@ function handle(msg) {
         : 'Not sent: that message is too long.'
       break
     case 'key:refused':
-      el.hint.innerHTML = 'Only the host can answer that. Ask them for <b>ring</b>.'
+      el.hint.innerHTML = 'Only the host can answer that. Ask them for <b>yolo</b>.'
       break
     case 'screen':
       // capture-pane separates rows with a bare LF, which on its own moves down

@@ -130,3 +130,12 @@ test('the queue cap does not apply in ring', () => {
     assert.equal(policy.submit({ text: `m${i}`, bozo: 'bozo' }).action, 'send')
   }
 })
+
+// Headless sessions start in yolo, because the approval keys need an attached
+// terminal and a detached gallery session is one nobody can ever release.
+test('a mode can be chosen at construction time', () => {
+  const policy = new Policy()
+  assert.equal(policy.mode, GALLERY)
+  assert.equal(policy.setMode(YOLO), YOLO)
+  assert.equal(policy.submit({ text: 'straight in', bozo: 'b' }).action, 'send')
+})

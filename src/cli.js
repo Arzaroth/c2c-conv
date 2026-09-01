@@ -37,6 +37,10 @@ function parseArgs(argv) {
     else if (arg === '--bind') opts.host = argv[++i]
     else if (arg === '--cwd') opts.cwd = resolve(argv[++i])
     else if (arg === '--no-attach') opts.attach = false
+    // Headless is only usable in yolo: the approval keys need an attached
+    // terminal, so a detached gallery session is one nobody can ever release.
+    else if (arg === '--yolo') opts.mode = 'yolo'
+    else if (arg === '--mode') opts.mode = MODE_ALIASES[argv[++i]] ?? argv[i]
     else if (arg === '--tunnel') opts.tunnel = true
     // --broker kept as an alias: it was the flag before the bigtop rename, and
     // it is also what someone unfamiliar with the theme would reach for.
@@ -125,6 +129,7 @@ async function cmdHost({ opts, passthrough }) {
       C2C_BIGTOP_URL: opts.bigtop ?? '',
       C2C_BIGTOP_ROOM: opts.room ?? opts.session,
       C2C_TUNNEL: opts.tunnel ? '1' : '',
+      C2C_MODE: opts.mode ?? '',
     },
   })
   child.unref()
@@ -146,14 +151,31 @@ async function cmdHost({ opts, passthrough }) {
     console.log('')
   }
   printInvite(ready, opts)
-  console.log(`  mode        gallery (bozos need your approval to send)`)
+  console.log(
+    opts.mode === 'yolo'
+      ? '  mode        YOLO - bozo messages go straight in, with your permissions'
+      : '  mode        gallery (bozos need your approval to send)'
+  )
   console.log('')
   console.log('  in the session, without leaving it:')
   console.log('    prefix + a  release the next waiting message')
   console.log('    prefix + d  drop it')
-  console.log('    prefix + y  toggle gallery / ring')
+  console.log('    prefix + y  toggle gallery / yolo')
   console.log('  the status bar shows mode, bozos, and what is waiting.')
   console.log('')
+
+  if (opts.mode !== 'yolo' && !opts.attach) {
+    console.log('note: detached and in gallery. The prefix keys need an attached')
+    console.log('      terminal, so release messages with c2c ctl approve-next,')
+    console.log('      or start with --yolo for a web-only session.')
+    console.log('')
+  }
+
+  if (opts.mode === 'yolo' && !opts.attach) {
+    console.log('warning: headless and in yolo. Nobody is watching the pane, and any bozo')
+    console.log('         with the link runs commands as you. Keep the link tight.')
+    console.log('')
+  }
 
   if (!isLoopback(opts.host)) {
     console.log(`warning: bound to ${opts.host}, so anyone who can reach this port and`)
@@ -342,6 +364,7 @@ async function cmdRingmaster() {
     token: process.env.C2C_TOKEN,
     bigtop: bigtopUrl ? { url: bigtopUrl, room: process.env.C2C_BIGTOP_ROOM } : null,
     tunnel: process.env.C2C_TUNNEL === '1',
+    mode: process.env.C2C_MODE || null,
   })
   await ringmaster.start()
   console.log(`[ringmaster] listening on ${ringmaster.url}`)
@@ -444,6 +467,7 @@ function usage() {
 
 usage:
   c2c host [-s NAME] [-p PORT] [--bind ADDR] [--cwd DIR] [--no-attach] [--tunnel]
+           [--yolo | --mode gallery|yolo]
            [--bigtop wss://HOST] [--room NAME] [--token SECRET] [-- <claude args>]
   c2c attach [-s NAME]
   c2c invite [-s NAME]

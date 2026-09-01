@@ -146,6 +146,26 @@ c2c ctl approve 3         # release a specific message
 c2c ctl deny 3
 ```
 
+## Headless: web only, nobody at the terminal
+
+```sh
+c2c host --no-attach --yolo --tunnel
+```
+
+Nothing is attached, and the whole session is driven from the browser. A bozo
+can send messages, and because the keypad works in yolo it can answer the
+session's own questions too - permission prompts, `/model`, plan approval - so
+no terminal is needed at any point.
+
+**Headless implies yolo, and that is not an accident.** The approval keys are
+tmux bindings that need an attached client, so a detached gallery session is one
+where nothing can ever be released except from `c2c ctl` on the machine itself.
+c2c says so if you start detached without `--yolo`.
+
+Which means the link is the whole security boundary: anyone holding it runs
+commands as you, unwatched. Use `--token` you chose, keep it tight, and
+`c2c stop` when you are done.
+
 ## How many bozos
 
 Up to **30** at once, per session and per bigtop room. A clown car holds about
