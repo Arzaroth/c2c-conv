@@ -53,8 +53,22 @@ Or skip it entirely and run `node src/cli.js` wherever the docs say `c2c`.
 
 ```sh
 c2c host                       # start a shared session and attach to it
-c2c host -- --model opus       # anything after -- goes to claude
 ```
+
+**Which directory.** The session starts in your current directory, so `cd` to
+the project first. Or point at it: `c2c host --cwd ~/Repos/thing`.
+
+**Which model, and any other claude flag.** Everything after `--` is handed to
+`claude` untouched:
+
+```sh
+c2c host -- --model opus
+c2c host --cwd ~/Repos/thing -- --model opus --permission-mode plan
+c2c host -- --append-system-prompt "keep answers short"
+```
+
+Arguments are quoted properly on the way through, so ones containing spaces
+survive.
 
 That prints an invite. By default the ringmaster binds loopback, so your bozo arrives
 over ssh:
