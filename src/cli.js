@@ -35,6 +35,7 @@ function parseArgs(argv) {
     else if (arg === '--no-attach') opts.attach = false
     else if (arg === '--broker') opts.broker = argv[++i]
     else if (arg === '--room') opts.room = argv[++i]
+    else if (arg === '--token') opts.token = argv[++i]
     else rest.push(arg)
   }
   return { opts, rest, passthrough }
@@ -80,7 +81,7 @@ async function cmdHost({ opts, passthrough }) {
   await tmux.newSession({ name: opts.session, cwd: opts.cwd, command })
 
   const dir = await ensureStateDir(opts.session)
-  const token = randomBytes(16).toString('hex')
+  const token = opts.token || randomBytes(16).toString('hex')
   const log = openSync(join(dir, 'relay.log'), 'a')
 
   const child = spawn(process.execPath, [SELF, '__relay'], {
@@ -323,7 +324,7 @@ function usage() {
 
 usage:
   c2c host [-s NAME] [-p PORT] [--bind ADDR] [--cwd DIR] [--no-attach]
-           [--broker wss://HOST] [--room NAME] [-- <claude args>]
+           [--broker wss://HOST] [--room NAME] [--token SECRET] [-- <claude args>]
   c2c attach [-s NAME]
   c2c invite [-s NAME]
   c2c ctl <status|list|mode spectator|mode yolo|approve ID|deny ID|approve-all|deny-all>

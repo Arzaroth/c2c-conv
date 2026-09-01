@@ -8,16 +8,29 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
 <style>
   :root {
-    --bg: #14121a;
-    --panel: #1d1a26;
-    --line: #322c41;
-    --text: #e8e4f0;
-    --muted: #9b93ad;
-    --accent: #f0426b;
-    --ok: #3fd18b;
-    --warn: #f5b544;
+    --bg: #100e17;
+    --panel: #1a1624;
+    --panel-2: #221c30;
+    --line: #362c4a;
+    --text: #f4efff;
+    --muted: #9a90b0;
+
+    --nose: #ff2e4c;
+    --face: #ffd93d;
+    --wig-1: #ff2e4c;
+    --wig-2: #ff9f1c;
+    --wig-3: #ffe14d;
+    --wig-4: #3ddc84;
+    --wig-5: #2ec4ff;
+    --wig-6: #a06bff;
+
+    --rainbow: linear-gradient(90deg,
+      var(--wig-1), var(--wig-2), var(--wig-3),
+      var(--wig-4), var(--wig-5), var(--wig-6), var(--wig-1));
   }
+
   * { box-sizing: border-box; }
+
   body {
     margin: 0;
     height: 100vh;
@@ -27,83 +40,268 @@
     color: var(--text);
     font: 14px ui-sans-serif, system-ui, sans-serif;
   }
+
+  /* Polka dots, because the whole point is that we are clowns. */
+  .dots {
+    background-image: radial-gradient(var(--dot, #ffffff0d) 1.5px, transparent 1.6px);
+    background-size: 14px 14px;
+  }
+
   header {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 10px 14px;
+    padding: 11px 16px 13px;
     background: var(--panel);
     border-bottom: 1px solid var(--line);
   }
-  .brand { font-weight: 700; letter-spacing: .02em; }
-  .brand span { color: var(--accent); }
+  header::after {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; bottom: -1px;
+    height: 3px;
+    background: var(--rainbow);
+    background-size: 220% 100%;
+    animation: wig 14s linear infinite;
+  }
+  @keyframes wig { to { background-position: 220% 0; } }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-weight: 800;
+    font-size: 15px;
+    letter-spacing: .01em;
+    white-space: nowrap;
+  }
+  .brand .name { color: var(--text); }
+  .brand .name b { color: var(--nose); font-weight: 800; }
+  .brand .clown { font-size: 19px; line-height: 1; }
+  .brand .clown.mirror { transform: scaleX(-1); }
+
   .badge {
-    padding: 3px 9px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 11px;
     border-radius: 999px;
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 700;
     border: 1px solid var(--line);
+    background: var(--panel-2);
+    white-space: nowrap;
   }
-  .badge.spectator { color: var(--warn); }
-  .badge.yolo { color: var(--accent); border-color: var(--accent); }
-  .badge.link { color: var(--ok); }
+  .badge .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .badge.spectator { color: var(--face); border-color: #6b5a12; }
+  .badge.yolo {
+    color: #fff;
+    background: var(--nose);
+    border-color: var(--nose);
+    box-shadow: 0 0 0 0 #ff2e4c88;
+    animation: honk 1.6s ease-out infinite;
+  }
+  @keyframes honk {
+    0%   { box-shadow: 0 0 0 0 #ff2e4c99; }
+    70%  { box-shadow: 0 0 0 9px #ff2e4c00; }
+    100% { box-shadow: 0 0 0 0 #ff2e4c00; }
+  }
+  .badge.link { color: var(--wig-4); }
   .badge.link.down { color: var(--muted); }
+
   .spacer { flex: 1; }
-  #screen { flex: 1; min-height: 0; padding: 8px 10px; }
+
+  .who {
+    width: 150px;
+    flex: none;
+    padding: 5px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--panel-2);
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    text-align: center;
+  }
+  .who:focus { outline: none; border-color: var(--wig-5); }
+
+  #screen {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    padding: 6px 8px;
+    background: #0b0910;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #screen .xterm-viewport {
+    overflow: hidden !important;
+    scrollbar-width: none;
+  }
+  #screen .xterm-viewport::-webkit-scrollbar { display: none; }
+
   footer {
+    position: relative;
     border-top: 1px solid var(--line);
     background: var(--panel);
-    padding: 10px 14px;
+    padding: 12px 16px 13px;
   }
-  #pending { margin-bottom: 8px; font-size: 12px; color: var(--muted); }
-  #pending div { padding: 2px 0; }
-  form { display: flex; gap: 8px; }
-  input[type=text] {
-    flex: 1;
-    padding: 9px 11px;
+  footer::before {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; top: -1px;
+    height: 3px;
+    background: var(--rainbow);
+    background-size: 220% 100%;
+    animation: wig 14s linear infinite reverse;
+  }
+
+  #pending:not(:empty) {
+    margin-bottom: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .ticket {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 12px;
+    font-size: 12.5px;
+    color: var(--text);
+    background: var(--panel-2);
+    border: 1px dashed var(--face);
+    border-radius: 8px;
+  }
+  .ticket .num {
+    font-weight: 800;
+    color: var(--face);
+    font-variant-numeric: tabular-nums;
+  }
+  .ticket .what { color: var(--muted); }
+
+  #keypad {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 10px;
+    padding: 8px 12px;
+    border: 1px dashed var(--wig-5);
+    border-radius: 10px;
+    background: var(--panel-2);
+  }
+  #keypad[hidden] { display: none; }
+  .keypad-label {
+    margin-right: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--wig-5);
+  }
+  #keypad button {
+    min-width: 34px;
+    padding: 6px 10px;
     border-radius: 7px;
     border: 1px solid var(--line);
     background: var(--bg);
     color: var(--text);
     font: inherit;
-  }
-  input[type=text]:focus { outline: none; border-color: var(--accent); }
-  button {
-    padding: 9px 16px;
-    border-radius: 7px;
-    border: none;
-    background: var(--accent);
-    color: #fff;
-    font: inherit;
-    font-weight: 600;
+    font-size: 12px;
+    font-weight: 700;
     cursor: pointer;
   }
-  button:disabled { opacity: .45; cursor: not-allowed; }
-  .hint { margin-top: 6px; font-size: 12px; color: var(--muted); }
+  #keypad button:hover:not(:disabled) { border-color: var(--wig-5); }
+  #keypad button.go { background: var(--wig-4); border-color: var(--wig-4); color: #06240f; }
+  #keypad button:disabled { opacity: .35; cursor: not-allowed; }
+
+  #composer { display: flex; gap: 10px; }
+  #composer input[type=text] {
+    flex: 1;
+    min-width: 0;
+    padding: 11px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+  }
+  #composer input[type=text]:focus { outline: none; border-color: var(--nose); }
+  #composer input[type=text]::placeholder { color: var(--muted); }
+
+  #send {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 11px 20px;
+    border-radius: 999px;
+    border: none;
+    background: var(--nose);
+    color: #fff;
+    font: inherit;
+    font-weight: 800;
+    cursor: pointer;
+  }
+  #send:hover:not(:disabled) { filter: brightness(1.12); }
+  #send:disabled { opacity: .4; cursor: not-allowed; }
+  #send .nose {
+    width: 11px; height: 11px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: inset -2px -2px 0 #ffffff55;
+  }
+
+  .hint { margin-top: 8px; font-size: 12px; color: var(--muted); }
+  .hint b { color: var(--face); font-weight: 700; }
+
+  @media (max-width: 640px) {
+    .brand .name { display: none; }
+    .who { width: 110px; }
+  }
 </style>
 </head>
 <body>
-  <header>
-    <div class="brand">c2c<span>-</span>conv 🤡</div>
-    <div class="badge" id="mode">connecting</div>
+  <header class="dots">
+    <div class="brand">
+      <span class="clown">🤡</span>
+      <span class="name">c2c<b>-</b>conv</span>
+      <span class="clown mirror">🤡</span>
+    </div>
+    <div class="badge" id="mode"><span class="dot"></span><span id="mode-text">connecting</span></div>
     <div class="badge link down" id="link">offline</div>
     <div class="spacer"></div>
-    <div class="badge" id="who">guest</div>
+    <input type="text" id="who" class="who" maxlength="40" placeholder="your name" aria-label="Your name">
   </header>
 
   <div id="screen"></div>
 
-  <footer>
+  <footer class="dots">
+    <div id="keypad" hidden>
+      <span class="keypad-label">🤡 the session is asking</span>
+      <button type="button" data-key="Up">↑</button>
+      <button type="button" data-key="Down">↓</button>
+      <button type="button" data-key="Left">←</button>
+      <button type="button" data-key="Right">→</button>
+      <button type="button" data-key="1">1</button>
+      <button type="button" data-key="2">2</button>
+      <button type="button" data-key="3">3</button>
+      <button type="button" class="go" data-key="Enter">Enter</button>
+      <button type="button" data-key="Escape">Esc</button>
+    </div>
     <div id="pending"></div>
     <form id="composer">
-      <input type="text" id="text" placeholder="Send a message to the session..." autocomplete="off">
-      <button type="submit" id="send">Send</button>
+      <input type="text" id="text" placeholder="Say something to the session..." autocomplete="off">
+      <button type="submit" id="send"><span class="nose"></span>Send</button>
     </form>
     <div class="hint" id="hint"></div>
   </footer>
 
   <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
   <script src="/client.js"></script>
 </body>
 </html>

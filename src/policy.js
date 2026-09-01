@@ -1,6 +1,11 @@
 export const SPECTATOR = 'spectator'
 export const YOLO = 'yolo'
 
+export const ALLOWED_KEYS = new Set([
+  'Up', 'Down', 'Left', 'Right', 'Enter', 'Escape', 'Tab', 'BSpace',
+  '1', '2', '3', '4', '5', '6', '7', '8', '9',
+])
+
 export class Policy {
   #mode = SPECTATOR
   #pending = new Map()
@@ -44,6 +49,16 @@ export class Policy {
     this.#pending.set(id, entry)
     this.#emit({ type: 'queued', ...entry })
     return { action: 'queued', id }
+  }
+
+  // Answering a dialog is a side effect by definition, and queueing individual
+  // arrow presses for approval would be unusable, so keys are a yolo-only
+  // capability rather than a third thing on the ladder.
+  submitKey({ key, guest }) {
+    if (!ALLOWED_KEYS.has(key)) return { action: 'rejected', reason: 'unknown key' }
+    if (this.#mode !== YOLO) return { action: 'refused', reason: 'spectator' }
+    this.#emit({ type: 'key', key, guest })
+    return { action: 'send', key }
   }
 
   list() {

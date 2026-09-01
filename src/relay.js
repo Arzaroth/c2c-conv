@@ -18,6 +18,8 @@ export class Relay {
   #pane = null
   #control = null
   #brokerStatus = null
+  #paneState = 'unknown'
+  #stateTimer = null
 
   constructor({ session, port, host = '127.0.0.1', token, broker }) {
     this.#session = session
@@ -74,11 +76,14 @@ export class Relay {
       await transport.start()
     }
 
+    this.#watchPaneState()
+
     await this.#startControl()
     await writeFile(metaFile(this.#session), JSON.stringify(this.#meta(), null, 2))
   }
 
   async stop() {
+    clearInterval(this.#stateTimer)
     await tmux.stopPipe(this.#session)
     await this.#pane?.stop()
     for (const transport of this.#transports) await transport.stop()
@@ -88,6 +93,15 @@ export class Relay {
         await unlink(path)
       } catch {}
     }
+  }
+
+  #watchPaneState() {
+    this.#stateTimer = setInterval(async () => {
+      const state = await tmux.paneState(this.#session)
+      if (state === this.#paneState) return
+      this.#paneState = state
+      this.#broadcastJson({ type: 'state', state })
+    }, 1000)
   }
 
   #meta() {
@@ -113,8 +127,19 @@ export class Relay {
     })
 
     const { cols, rows } = await tmux.paneSize(this.#session)
-    channel.sendJson({ type: 'hello', mode: this.#policy.mode, cols, rows, guestId: guest.id })
-    channel.sendJson({ type: 'screen', data: await tmux.capturePane(this.#session) })
+    channel.sendJson({
+      type: 'hello',
+      mode: this.#policy.mode,
+      state: this.#paneState,
+      cols,
+      rows,
+      guestId: guest.id,
+    })
+    channel.sendJson({
+      type: 'screen',
+      data: await tmux.capturePane(this.#session),
+      cursor: await tmux.cursor(this.#session),
+    })
     this.#notifyHost(`c2c: a guest connected via ${channel.origin} (${this.#guests.size} connected)`)
   }
 
@@ -132,6 +157,13 @@ export class Relay {
       return
     }
 
+    if (msg.type === 'key') {
+      const result = this.#policy.submitKey({ key: msg.key, guest: guest.name })
+      if (result.action === 'send') this.#pressKey(result.key)
+      else guest.channel.sendJson({ type: 'key:refused', key: msg.key, reason: result.reason })
+      return
+    }
+
     if (msg.type === 'submit') {
       const result = this.#policy.submit({ text: msg.text, guest: guest.name })
       if (result.action === 'send') {
@@ -141,6 +173,13 @@ export class Relay {
         guest.channel.sendJson({ type: 'pending', id: result.id, text: msg.text })
       }
     }
+  }
+
+  // Keys deliberately skip the prompt guard: answering a dialog is the whole
+  // reason they exist. Digits go in as literal text so numbered menus work.
+  async #pressKey(key) {
+    if (/^[1-9]$/.test(key)) await tmux.sendText(this.#session, key)
+    else await tmux.sendKey(this.#session, key)
   }
 
   async #inject(text) {

@@ -2,6 +2,7 @@ const token = new URLSearchParams(location.search).get('t') || ''
 
 const el = {
   mode: document.getElementById('mode'),
+  modeText: document.getElementById('mode-text'),
   link: document.getElementById('link'),
   who: document.getElementById('who'),
   pending: document.getElementById('pending'),
@@ -9,22 +10,93 @@ const el = {
   text: document.getElementById('text'),
   send: document.getElementById('send'),
   hint: document.getElementById('hint'),
+  screen: document.getElementById('screen'),
+  keypad: document.getElementById('keypad'),
 }
 
+let paneState = 'unknown'
+
+function refreshKeypad() {
+  el.keypad.hidden = paneState !== 'dialog'
+  const usable = mode === 'yolo'
+  for (const button of el.keypad.querySelectorAll('button')) button.disabled = !usable
+  el.keypad.querySelector('.keypad-label').textContent = usable
+    ? '🤡 the session is asking'
+    : '🤡 the session is asking - only the host can answer'
+}
+
+el.keypad.addEventListener('click', (event) => {
+  const key = event.target.dataset?.key
+  if (!key || socket?.readyState !== WebSocket.OPEN) return
+  socket.send(JSON.stringify({ type: 'key', key }))
+})
+
 const term = new Terminal({
-  convertEol: false,
   cursorBlink: false,
   disableStdin: true,
   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
   fontSize: 13,
-  scrollback: 10000,
-  theme: { background: '#14121a', foreground: '#e8e4f0' },
+  // The guest mirrors a fixed-size pane that repaints in place, so scrollback
+  // would only collect redraw debris.
+  scrollback: 0,
+  theme: {
+    background: '#0b0910',
+    foreground: '#f4efff',
+    cursor: '#ff2e4c',
+    selectionBackground: '#a06bff55',
+  },
 })
-const fit = new FitAddon.FitAddon()
-term.loadAddon(fit)
-term.open(document.getElementById('screen'))
-fit.fit()
-addEventListener('resize', () => fit.fit())
+term.open(el.screen)
+term.resize(80, 24)
+
+// The guest terminal has to keep the host's exact column count or the live ANSI
+// stream lands in the wrong places, so the whole grid is scaled to fit rather
+// than reflowed.
+// Fit by font size rather than a CSS transform: xterm then renders natively at
+// the chosen size, so the text stays crisp instead of being scaled bitmap. The
+// host's rows and columns are fixed, so whatever is left over after fitting is
+// aspect-ratio letterboxing and gets centred.
+let fitting = false
+
+function rescale() {
+  if (fitting) return
+  fitting = true
+  requestAnimationFrame(() => {
+    try {
+      fit()
+    } finally {
+      fitting = false
+    }
+  })
+}
+
+function fit() {
+  const view = el.screen.querySelector('.xterm')
+  const grid = el.screen.querySelector('.xterm-screen')
+  if (!view || !grid) return
+
+  view.style.transform = 'none'
+  // Pin the element to the character grid: left to itself it stretches to the
+  // container, which both mispositions the centring and strands the scrollbar
+  // out in the empty gap.
+  view.style.width = `${grid.offsetWidth}px`
+  view.style.height = `${grid.offsetHeight}px`
+
+  const width = grid.offsetWidth
+  const height = grid.offsetHeight
+  const availableWidth = el.screen.clientWidth - 16
+  const availableHeight = el.screen.clientHeight - 12
+  if (!width || !height || availableWidth <= 0 || availableHeight <= 0) return
+
+  // The host's rows and columns are fixed, so one axis fills and the other
+  // letterboxes. Scaling about the centre lets the flex parent centre the
+  // leftover evenly instead of stranding it all on the right.
+  const scale = Math.min(availableWidth / width, availableHeight / height)
+  view.style.transformOrigin = 'center center'
+  view.style.transform = `scale(${scale})`
+}
+
+addEventListener('resize', rescale)
 
 const pending = new Map()
 let mode = 'spectator'
@@ -33,11 +105,12 @@ let retry = 500
 
 function setMode(next) {
   mode = next
-  el.mode.textContent = next === 'yolo' ? 'yolo - sends immediately' : 'spectator - host approves'
   el.mode.className = `badge ${next}`
-  el.hint.textContent = next === 'yolo'
-    ? 'Your messages go straight into the session as if the host typed them.'
-    : 'Your messages wait for the host to release them.'
+  el.modeText.textContent = next === 'yolo' ? 'YOLO' : 'SPECTATOR'
+  el.hint.innerHTML = next === 'yolo'
+    ? 'Straight through. What you send lands as if the host typed it.'
+    : 'The host has to <b>release</b> anything you send.'
+  refreshKeypad()
 }
 
 function setLink(up) {
@@ -47,16 +120,27 @@ function setLink(up) {
 }
 
 function renderPending() {
-  el.pending.innerHTML = ''
+  el.pending.replaceChildren()
   for (const entry of pending.values()) {
     const row = document.createElement('div')
-    row.textContent = `waiting for host approval - #${entry.id} ${entry.text}`
+    row.className = 'ticket'
+
+    const num = document.createElement('span')
+    num.className = 'num'
+    num.textContent = `#${entry.id}`
+
+    const what = document.createElement('span')
+    what.className = 'what'
+    what.textContent = 'waiting for the host'
+
+    const text = document.createElement('span')
+    text.textContent = entry.text
+
+    row.append(num, what, text)
     el.pending.appendChild(row)
   }
 }
 
-// The same page is served by the local relay at / and by the broker at
-// /r/<room>, so the socket endpoint is derived from where it was loaded.
 function endpoint() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
   const room = location.pathname.startsWith('/r/') ? decodeURIComponent(location.pathname.slice(3)) : null
@@ -73,6 +157,7 @@ function connect() {
   socket.onopen = () => {
     retry = 500
     setLink(true)
+    announce()
   }
 
   socket.onclose = () => {
@@ -93,21 +178,34 @@ function connect() {
 function handle(msg) {
   switch (msg.type) {
     case 'hello':
+      paneState = msg.state ?? 'unknown'
       setMode(msg.mode)
       term.resize(msg.cols, msg.rows)
+      rescale()
+      break
+    case 'state':
+      paneState = msg.state
+      refreshKeypad()
+      break
+    case 'key:refused':
+      el.hint.innerHTML = 'Only the host can answer that. Ask them for <b>yolo</b>.'
       break
     case 'screen':
+      // capture-pane separates rows with a bare LF, which on its own moves down
+      // without returning to column 0. Its trailing newline has to go too: it
+      // would scroll a full-height snapshot up by one row and put every later
+      // relative redraw one row off.
       term.reset()
-      term.write(msg.data)
+      term.write(msg.data.replace(/\r?\n$/, '').replace(/\r?\n/g, '\r\n'))
+      if (msg.cursor) term.write(`\x1b[${msg.cursor.y + 1};${msg.cursor.x + 1}H`)
+      rescale()
       break
     case 'named':
-      el.who.textContent = msg.name
+      el.who.value = msg.name
       break
     case 'pending':
       pending.set(msg.id, { id: msg.id, text: msg.text })
       renderPending()
-      break
-    case 'accepted':
       break
     case 'policy:mode':
       setMode(msg.mode)
@@ -118,7 +216,7 @@ function handle(msg) {
       renderPending()
       break
     case 'policy:held':
-      el.hint.textContent = `held: the session is ${msg.state}, resend once it is idle`
+      el.hint.innerHTML = `Held: the session is <b>${msg.state}</b>. Try again once it is idle.`
       break
     case 'notice':
       term.write(`\r\n\x1b[38;5;246m[c2c] ${msg.text}\x1b[39m\r\n`)
@@ -129,23 +227,26 @@ function handle(msg) {
 el.form.addEventListener('submit', (event) => {
   event.preventDefault()
   const text = el.text.value.trim()
-  if (!text || !socket || socket.readyState !== WebSocket.OPEN) return
+  if (!text || socket?.readyState !== WebSocket.OPEN) return
   socket.send(JSON.stringify({ type: 'submit', text }))
   el.text.value = ''
 })
 
-const saved = localStorage.getItem('c2c-name')
-const name = saved || prompt('Your name?') || 'guest'
-localStorage.setItem('c2c-name', name)
-el.who.textContent = name
+let name = localStorage.getItem('c2c-name') || 'guest'
+el.who.value = name
+
+function announce() {
+  if (socket?.readyState !== WebSocket.OPEN) return
+  socket.send(JSON.stringify({ type: 'name', name }))
+}
+
+el.who.addEventListener('change', () => {
+  name = el.who.value.trim() || 'guest'
+  el.who.value = name
+  localStorage.setItem('c2c-name', name)
+  announce()
+})
 
 setMode('spectator')
 setLink(false)
 connect()
-
-const announce = setInterval(() => {
-  if (socket?.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({ type: 'name', name }))
-    clearInterval(announce)
-  }
-}, 200)

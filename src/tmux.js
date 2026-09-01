@@ -53,6 +53,15 @@ export async function capturePlain(name) {
   return stdout
 }
 
+// The live stream positions the cursor relatively, so a guest seeded with a
+// snapshot has to start from the host's actual cursor or every later redraw
+// lands a row off.
+export async function cursor(name) {
+  const { stdout } = await tmux(['display-message', '-p', '-t', name, '#{cursor_x} #{cursor_y}'])
+  const [x, y] = stdout.trim().split(/\s+/).map(Number)
+  return { x, y }
+}
+
 export async function paneAlive(name) {
   try {
     const { stdout } = await tmux(['display-message', '-p', '-t', name, '#{pane_dead}'])

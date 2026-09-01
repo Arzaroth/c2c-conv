@@ -45,8 +45,35 @@ RFC 6455 server implemented directly on `node:http` upgrades. Zero dependencies,
 so the whole thing runs with nothing installed.
 
 **Guest client** (`web/`)
-Read-only xterm.js mirror plus a compose box. The terminal has `disableStdin`, so
-the only way a guest reaches the session is through the policy gate.
+Read-only xterm.js mirror plus a compose box and a keypad. The terminal has
+`disableStdin`, so the only way a guest reaches the session is through the policy
+gate.
+
+## Two channels, not one
+
+Text and keys are separate capabilities with opposite guards, because they solve
+opposite problems:
+
+| | text | keys |
+|---|---|---|
+| allowed when pane is `prompt` | yes | yes |
+| allowed when pane is `dialog` | **no**, held | **yes**, that is the point |
+| allowed in spectator | queued for approval | **refused outright** |
+| allowed in yolo | yes | yes |
+
+Text must never reach a dialog, or a guest message becomes an answer to a
+permission prompt. Keys must reach dialogs, or the guest is stuck the moment
+Claude asks anything. Keys are yolo-only rather than a third rung on the ladder:
+answering a dialog is a side effect by definition, and queueing individual arrow
+presses for host approval would be unusable.
+
+The key allowlist is arrows, Enter, Escape, Tab, Backspace and digits 1-9.
+Nothing else is accepted, so a guest cannot send `C-c` or arbitrary control
+sequences. The gate lives in the relay, not the UI: a guest opening their own
+websocket and sending a raw key still gets refused.
+
+The relay polls pane state once a second and broadcasts changes, which is how the
+client knows to reveal the keypad.
 
 ## Why the pane and not the transcript
 

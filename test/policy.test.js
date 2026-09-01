@@ -61,6 +61,28 @@ test('empty submissions are ignored', () => {
   assert.equal(policy.submit({ text: null }).action, 'ignored')
 })
 
+test('a spectator cannot answer a dialog with keys', () => {
+  const policy = new Policy()
+  const result = policy.submitKey({ key: 'Enter', guest: 'bozo' })
+  assert.equal(result.action, 'refused')
+  assert.equal(result.reason, 'spectator')
+})
+
+test('yolo lets keys through', () => {
+  const policy = new Policy()
+  policy.setMode(YOLO)
+  assert.equal(policy.submitKey({ key: 'Down', guest: 'bozo' }).action, 'send')
+  assert.equal(policy.submitKey({ key: '2', guest: 'bozo' }).action, 'send')
+})
+
+test('keys outside the allowlist are rejected even in yolo', () => {
+  const policy = new Policy()
+  policy.setMode(YOLO)
+  for (const key of ['C-c', 'q', 'F1', ';', 'Enter Enter', '']) {
+    assert.equal(policy.submitKey({ key, guest: 'bozo' }).action, 'rejected', key)
+  }
+})
+
 test('unknown modes are rejected', () => {
   const policy = new Policy()
   assert.throws(() => policy.setMode('admin'))

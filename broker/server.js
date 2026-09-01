@@ -18,10 +18,35 @@ const MIME = {
 }
 
 const MAX_GUESTS = 16
+const HEARTBEAT_MS = 15000
+
+// Without this a half-open connection keeps a room name claimed forever: the
+// host is gone but the socket never errors, so every later host gets refused.
+function heartbeat(ws, intervalMs = HEARTBEAT_MS) {
+  let alive = true
+  ws.on('pong', () => {
+    alive = true
+  })
+  const timer = setInterval(() => {
+    if (!alive) {
+      clearInterval(timer)
+      ws.close()
+      return
+    }
+    alive = false
+    ws.ping()
+  }, intervalMs)
+  ws.on('close', () => clearInterval(timer))
+  return timer
+}
 
 export class Broker {
   #rooms = new Map()
   #server = null
+
+  constructor({ heartbeatMs = HEARTBEAT_MS } = {}) {
+    this.heartbeatMs = heartbeatMs
+  }
 
   get rooms() {
     return this.#rooms
@@ -100,6 +125,7 @@ export class Broker {
     const room = existing ?? { token, guests: new Map(), host: null }
     room.host = ws
     this.#rooms.set(roomId, room)
+    heartbeat(ws, this.heartbeatMs)
 
     ws.on('text', (raw) => this.#fromHost(room, raw))
     ws.on('binary', (chunk) => {
@@ -133,6 +159,7 @@ export class Broker {
 
     const id = randomBytes(4).toString('hex')
     room.guests.set(id, ws)
+    heartbeat(ws, this.heartbeatMs)
 
     ws.on('text', (raw) => {
       let payload

@@ -61,6 +61,10 @@ export class WebSocket extends EventEmitter {
     this.#send(Buffer.isBuffer(data) ? data : Buffer.from(data), BINARY)
   }
 
+  ping() {
+    this.#send(Buffer.alloc(0), PING)
+  }
+
   close() {
     if (this.#closed) return
     this.#send(Buffer.alloc(0), CLOSE)
@@ -145,7 +149,10 @@ export class WebSocket extends EventEmitter {
       this.#send(payload, PONG)
       return true
     }
-    if (opcode === PONG) return true
+    if (opcode === PONG) {
+      this.emit('pong')
+      return true
+    }
 
     if (opcode === 0) {
       this.#fragments.push(payload)

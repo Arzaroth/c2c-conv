@@ -63,6 +63,16 @@ c2c ctl deny 3
 You get a tmux notice in your pane whenever something queues up, so you do not
 have to watch a second window.
 
+## When the session asks a question
+
+Claude asks things with arrow-key menus: permission prompts, `/model`, plan
+approval. The guest client notices and shows a keypad, so a guest can drive the
+menu rather than watching helplessly while their text sits held.
+
+**Spectators cannot answer.** Not just a greyed-out button: the relay refuses the
+keypress, because answering a permission dialog is a side effect and spectator
+mode means no side effects. Only yolo unlocks it.
+
 When you trust them, elevate:
 
 ```sh

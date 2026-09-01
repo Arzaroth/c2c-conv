@@ -1,5 +1,7 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
+import { connect as netConnect } from 'node:net'
+import { randomBytes } from 'node:crypto'
 
 import { Broker } from '../broker/server.js'
 
@@ -135,6 +137,58 @@ test('a second host cannot take over a claimed room', async () => {
   const host = await open(`${base}/uplink?room=zeta&t=secret`)
   await assert.rejects(() => open(`${base}/uplink?room=zeta&t=secret`))
   host.close()
+})
+
+// A real client answers pings automatically, so a silent peer has to be built
+// from a raw socket that completes the handshake and then never replies.
+function silentPeer(port, path) {
+  return new Promise((resolve, reject) => {
+    const key = randomBytes(16).toString('base64')
+    const socket = netConnect(port, '127.0.0.1', () => {
+      socket.write(
+        `GET ${path} HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\n` +
+        `Connection: Upgrade\r\nSec-WebSocket-Key: ${key}\r\nSec-WebSocket-Version: 13\r\n\r\n`
+      )
+    })
+    socket.once('data', (chunk) => {
+      const status = chunk.toString().split('\r\n')[0]
+      if (status.includes('101')) resolve(socket)
+      else reject(new Error(status))
+    })
+    socket.once('error', reject)
+  })
+}
+
+test('a room is released when its host stops answering heartbeats', async () => {
+  const quick = new Broker({ heartbeatMs: 60 })
+  const address = await quick.listen(0, '127.0.0.1')
+
+  const socket = await silentPeer(address.port, '/uplink?room=theta&t=secret')
+  assert.equal(quick.rooms.size, 1)
+
+  await new Promise((r) => setTimeout(r, 500))
+  assert.equal(quick.rooms.size, 0, 'a silent host must not hold the room name')
+
+  socket.destroy()
+  quick.close()
+})
+
+test('a new host can claim a room once the stale one is reaped', async () => {
+  const quick = new Broker({ heartbeatMs: 60 })
+  const address = await quick.listen(0, '127.0.0.1')
+  const url = `ws://127.0.0.1:${address.port}`
+
+  const stale = await silentPeer(address.port, '/uplink?room=iota&t=old-token')
+  await new Promise((r) => setTimeout(r, 500))
+
+  const fresh = await open(`${url}/uplink?room=iota&t=new-token`)
+  const guest = await open(`${url}/guest?room=iota&t=new-token`)
+  assert.equal((await fresh.next()).event, 'join')
+
+  stale.destroy()
+  fresh.close()
+  guest.close()
+  quick.close()
 })
 
 test('guests are dropped when the host disconnects', async () => {

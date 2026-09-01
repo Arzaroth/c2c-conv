@@ -89,6 +89,18 @@ so there is exactly one client to maintain.
 - When the host disconnects, guests are told `host disconnected` and dropped, and
   the room is deleted. The host's uplink reconnects on its own with exponential
   backoff from 500ms to 15s, reclaiming the room name when it returns.
+- Every connection is pinged every 15s and dropped if it misses a pong. This is
+  not optional politeness: without it a half-open host connection keeps a room
+  name claimed forever, the socket never errors, and every later host is refused
+  with a 401 because the room kept the dead host's token. Found in exactly that
+  state during testing.
+
+Because a fresh `c2c host` mints a new token by default, the guest link changes
+on every restart. Pass `--token` to keep a room's link stable:
+
+```sh
+c2c host --broker wss://broker.example.com --room standup --token <secret>
+```
 
 ### Deploying
 
