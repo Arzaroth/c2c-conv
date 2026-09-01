@@ -291,6 +291,23 @@ and was rewritten until it did. tmux falls back to literal text for anything it
 does not recognise as a key name, so the literal-send test only bites when the
 payload is exactly a key name like `C-u`.
 
+## An agent as a bozo
+
+`src/mcp.js` is an MCP server that joins a session over the ordinary bozo
+protocol. The ringmaster does not know or care that this bozo is a program, so
+the gate applies unchanged.
+
+Two things it does differently from the browser client. It drops the pane byte
+stream entirely, because without a terminal emulator those bytes are noise, and
+takes the screen from snapshots instead - which is why the ringmaster answers a
+`refresh` request. And it strips ANSI before handing anything over, since escape
+sequences are for a terminal, not a reader.
+
+**It exposes no approve, deny or mode tool.** That is the whole design: an agent
+that could release its own messages would collapse the gate the rest of the
+project is built on. Host control stays on the tmux keys and the unix control
+socket, both reachable only from the machine itself.
+
 ## Open work
 
 - Pane geometry is fixed at 200x50 until a client attaches; no flag for it yet.

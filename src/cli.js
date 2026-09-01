@@ -41,6 +41,8 @@ function parseArgs(argv) {
     else if (arg === '--bigtop' || arg === '--broker') opts.bigtop = argv[++i]
     else if (arg === '--room') opts.room = argv[++i]
     else if (arg === '--token') opts.token = argv[++i]
+    else if (arg === '--url') opts.url = argv[++i]
+    else if (arg === '--name') opts.name = argv[++i]
     else rest.push(arg)
   }
   return { opts, rest, passthrough }
@@ -239,6 +241,39 @@ async function cmdInvite({ opts }) {
   printInvite({ ...meta, bigtop: status.bigtop }, opts)
 }
 
+// Joins as a bozo over the ordinary bozo protocol, so an agent is gated exactly
+// like a person: the ringmaster does not know or care that this one is a program.
+async function cmdMcp({ opts }) {
+  const { BozoLink, McpServer } = await import('./mcp.js')
+
+  let url = opts.url
+  if (!url) {
+    const meta = await readMeta(opts.session)
+    if (!meta) {
+      console.error(`no ringmaster running for session "${opts.session}" - start one with c2c host`)
+      process.exit(1)
+    }
+    url = `ws://127.0.0.1:${meta.port}/?t=${meta.token}`
+  }
+
+  const link = new BozoLink({ url, name: opts.name ?? 'claude' })
+  // stdout is the MCP transport, so anything chatty has to go to stderr.
+  link.on('closed', () => {
+    console.error('[c2c] the session ended')
+    process.exit(0)
+  })
+
+  try {
+    await link.connect()
+  } catch (err) {
+    console.error(`[c2c] could not join the session: ${err.message}`)
+    process.exit(1)
+  }
+  console.error(`[c2c] hoinked in as ${opts.name ?? 'claude'}, mode is ${link.mode}`)
+
+  new McpServer(link).start()
+}
+
 async function cmdBigtop({ opts }) {
   const { Bigtop } = await import('../bigtop/server.js')
   const bigtop = new Bigtop()
@@ -384,6 +419,7 @@ usage:
   c2c ctl <status|list|mode gallery|mode yolo|approve ID|deny ID|approve-all|deny-all>
   c2c stop [-s NAME]
   c2c bigtop [-p PORT] [--bind ADDR]
+  c2c mcp [-s NAME] [--url URL] [--name WHO]      join a session as an AI bozo
 
 transports:
   loopback + ssh   default, nothing to deploy
@@ -412,6 +448,9 @@ try {
       break
     case 'invite':
       await cmdInvite({ opts })
+      break
+    case 'mcp':
+      await cmdMcp({ opts })
       break
     case 'bigtop':
     case 'broker':

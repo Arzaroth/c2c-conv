@@ -163,6 +163,27 @@ It is built from Claude Code's own session transcript, which is an undocumented
 file format, so it is treated as strictly optional. If it cannot be read the
 mirror is unaffected and the tab simply stays empty.
 
+## Letting an AI join
+
+A second agent can join as a bozo, under exactly the same gate as a person:
+
+```jsonc
+// .mcp.json, or wherever your client keeps MCP servers
+{ "mcpServers": { "c2c": { "command": "node", "args": ["/path/to/c2c-conv/src/cli.js", "mcp"] } } }
+```
+
+It gets five tools: `c2c_screen` (the session right now, as plain text),
+`c2c_history` (the conversation, including turns from before it joined),
+`c2c_status`, `c2c_send` and `c2c_press`.
+
+There is deliberately **no tool to approve, deny or change the mode.** An agent
+that could release its own messages would not be a bozo, it would be an unlocked
+door. Those stay with the host, on the tmux keys and the unix socket, reachable
+only by whoever is at the machine. In gallery mode an agent's messages queue for
+you like anyone else's, and it cannot answer a permission prompt at all.
+
+Point it at a remote session with `--url wss://.../bozo?room=...&t=...`.
+
 ## If a message gets held
 
 Bozo messages are held rather than injected when the session is not ready for
