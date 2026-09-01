@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>c2c-conv</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤡</text></svg>">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
+<style>
+  :root {
+    --bg: #14121a;
+    --panel: #1d1a26;
+    --line: #322c41;
+    --text: #e8e4f0;
+    --muted: #9b93ad;
+    --accent: #f0426b;
+    --ok: #3fd18b;
+    --warn: #f5b544;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px ui-sans-serif, system-ui, sans-serif;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+  }
+  .brand { font-weight: 700; letter-spacing: .02em; }
+  .brand span { color: var(--accent); }
+  .badge {
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px solid var(--line);
+  }
+  .badge.spectator { color: var(--warn); }
+  .badge.yolo { color: var(--accent); border-color: var(--accent); }
+  .badge.link { color: var(--ok); }
+  .badge.link.down { color: var(--muted); }
+  .spacer { flex: 1; }
+  #screen { flex: 1; min-height: 0; padding: 8px 10px; }
+  footer {
+    border-top: 1px solid var(--line);
+    background: var(--panel);
+    padding: 10px 14px;
+  }
+  #pending { margin-bottom: 8px; font-size: 12px; color: var(--muted); }
+  #pending div { padding: 2px 0; }
+  form { display: flex; gap: 8px; }
+  input[type=text] {
+    flex: 1;
+    padding: 9px 11px;
+    border-radius: 7px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+  }
+  input[type=text]:focus { outline: none; border-color: var(--accent); }
+  button {
+    padding: 9px 16px;
+    border-radius: 7px;
+    border: none;
+    background: var(--accent);
+    color: #fff;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .hint { margin-top: 6px; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand">c2c<span>-</span>conv 🤡</div>
+    <div class="badge" id="mode">connecting</div>
+    <div class="badge link down" id="link">offline</div>
+    <div class="spacer"></div>
+    <div class="badge" id="who">guest</div>
+  </header>
+
+  <div id="screen"></div>
+
+  <footer>
+    <div id="pending"></div>
+    <form id="composer">
+      <input type="text" id="text" placeholder="Send a message to the session..." autocomplete="off">
+      <button type="submit" id="send">Send</button>
+    </form>
+    <div class="hint" id="hint"></div>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
+  <script src="./client.js"></script>
+</body>
+</html>

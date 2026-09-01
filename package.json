@@ -1,0 +1,17 @@
+{
+  "name": "c2c-conv",
+  "version": "0.1.0",
+  "description": "Share one Claude Code session with a second person, live",
+  "type": "module",
+  "bin": {
+    "c2c": "src/cli.js"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "private": true
+}
