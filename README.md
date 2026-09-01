@@ -97,9 +97,20 @@ safe. Elevate for people you would hand your actual keyboard to.
 
 Runs on its own tmux server (`-L c2c`), so it will not touch your existing tmux.
 
+## If a message gets held
+
+Guest messages are held rather than injected when the session is not ready for
+them, and you get a tmux notice saying which:
+
+- **you have an unsent draft** in the prompt box, so injecting would splice the
+  guest's words into your half-typed line
+- **the pane is a dialog**, so the text would go nowhere and the trailing Enter
+  would confirm whatever is highlighted
+
+Clear or send your draft, or answer the dialog, and the guest can resend.
+
 ## Status
 
 v0. Works end to end. Rough edges are listed in
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#open-work) - the notable ones are
-input arbitration when both people type at once, and guests joining mid-session
-only getting the visible screen rather than full scrollback.
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#open-work) - the notable one is that
+guests joining mid-session get the visible screen rather than full scrollback.

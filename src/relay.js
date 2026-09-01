@@ -1,5 +1,5 @@
 import { createServer as createUnixServer } from 'node:net'
-import { unlink, writeFile } from 'node:fs/promises'
+import { stat, unlink, writeFile } from 'node:fs/promises'
 import { randomBytes } from 'node:crypto'
 
 import * as tmux from './tmux.js'
@@ -8,6 +8,8 @@ import { Policy, SPECTATOR } from './policy.js'
 import { LocalTransport } from './transport/local.js'
 import { BrokerTransport } from './transport/broker.js'
 import { controlSocket, ensureStateDir, metaFile, paneFile } from './paths.js'
+
+const MAX_PANE_BYTES = Number(process.env.C2C_MAX_PANE_BYTES) || 8 * 1024 * 1024
 
 export class Relay {
   #session
@@ -19,7 +21,9 @@ export class Relay {
   #control = null
   #brokerStatus = null
   #paneState = 'unknown'
+  #paneSize = { cols: 0, rows: 0 }
   #stateTimer = null
+  #writes = Promise.resolve()
 
   constructor({ session, port, host = '127.0.0.1', token, broker }) {
     this.#session = session
@@ -97,11 +101,48 @@ export class Relay {
 
   #watchPaneState() {
     this.#stateTimer = setInterval(async () => {
-      const state = await tmux.paneState(this.#session)
-      if (state === this.#paneState) return
-      this.#paneState = state
-      this.#broadcastJson({ type: 'state', state })
+      try {
+        const state = await tmux.paneState(this.#session)
+        if (state !== this.#paneState) {
+          this.#paneState = state
+          this.#broadcastJson({ type: 'state', state })
+        }
+
+        // tmux resizes the pane to whatever client attaches, so the geometry
+        // changes under guests who would otherwise keep rendering the old grid.
+        const size = await tmux.paneSize(this.#session)
+        if (size.cols !== this.#paneSize.cols || size.rows !== this.#paneSize.rows) {
+          this.#paneSize = size
+          this.#broadcastJson({ type: 'resize', ...size })
+          await this.#reseed()
+        }
+
+        await this.#rotatePaneFile()
+      } catch {}
     }, 1000)
+  }
+
+  async #reseed() {
+    this.#broadcastJson({
+      type: 'screen',
+      data: await tmux.capturePane(this.#session),
+      cursor: await tmux.cursor(this.#session),
+    })
+  }
+
+  // pipe-pane appends for the lifetime of the session. Rotating loses the bytes
+  // written between stop and start, so guests get a fresh snapshot afterwards
+  // rather than a stream with a hole in it.
+  async #rotatePaneFile() {
+    const file = paneFile(this.#session)
+    const { size } = await stat(file)
+    if (size < MAX_PANE_BYTES) return
+
+    await tmux.stopPipe(this.#session)
+    await writeFile(file, '')
+    this.#pane.rewind()
+    await tmux.startPipe(this.#session, file)
+    await this.#reseed()
   }
 
   #meta() {
@@ -182,15 +223,54 @@ export class Relay {
     else await tmux.sendKey(this.#session, key)
   }
 
-  async #inject(text) {
+  // Two writers on one pty interleave, so every text injection is serialised
+  // behind the last one. Keys deliberately skip this queue: they are single
+  // atomic keystrokes and should not wait out a text injection's timeout.
+  #inject(text) {
+    this.#writes = this.#writes.then(() => this.#injectNow(text)).catch(() => false)
+    return this.#writes
+  }
+
+  async #injectNow(text) {
     const state = await tmux.waitForPrompt(this.#session)
-    if (state !== 'prompt') {
-      this.#notifyHost(`c2c: HELD a guest message, pane is ${state} - resend once the session is idle`)
-      this.#broadcastJson({ type: 'policy:held', state, text })
-      return false
-    }
+    if (state !== 'prompt') return this.#hold(state, text)
+
+    // The host typing is the other writer the queue cannot see.
+    const draft = await tmux.promptDraft(this.#session)
+    if (draft) return this.#hold('draft', text)
+
     await tmux.submit(this.#session, text)
+    await this.#settle()
     return true
+  }
+
+  // send-keys returns once tmux has queued the keys, well before the session
+  // renders them, so a single "is the box empty" check passes while the text is
+  // still in flight and the next queued message then catches it mid-render and
+  // is held as a phantom draft. Wait for the box to read empty twice running.
+  async #settle(timeoutMs = 5000) {
+    const deadline = Date.now() + timeoutMs
+    await new Promise((r) => setTimeout(r, 250))
+
+    let consecutiveEmpty = 0
+    while (Date.now() < deadline) {
+      const draft = await tmux.promptDraft(this.#session)
+      if (draft === '') {
+        if (++consecutiveEmpty >= 2) return
+      } else {
+        consecutiveEmpty = 0
+      }
+      await new Promise((r) => setTimeout(r, 150))
+    }
+  }
+
+  #hold(reason, text) {
+    const detail = reason === 'draft'
+      ? 'you have an unsent draft in the prompt box'
+      : `pane is ${reason}`
+    this.#notifyHost(`c2c: HELD a guest message, ${detail}`)
+    this.#broadcastJson({ type: 'policy:held', state: reason, text })
+    return false
   }
 
   #onPolicyEvent(event) {

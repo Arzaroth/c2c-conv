@@ -73,7 +73,17 @@ sequences. The gate lives in the relay, not the UI: a guest opening their own
 websocket and sending a raw key still gets refused.
 
 The relay polls pane state once a second and broadcasts changes, which is how the
-client knows to reveal the keypad.
+client knows to reveal the keypad. The same poll covers two things guests would
+otherwise never see:
+
+- **Pane geometry.** tmux resizes the pane to whatever client attaches, so the
+  grid changes under guests who would keep rendering the old one. A size change
+  broadcasts a `resize` and a fresh snapshot. This matters in normal use, since
+  `c2c host` attaches by default.
+- **Pane file size.** `pipe-pane` appends for the lifetime of the session, so
+  the file is rotated past 8MB. Rotating loses the bytes written between stop
+  and start, so guests get a fresh snapshot rather than a stream with a hole in
+  it.
 
 ## Why the pane and not the transcript
 
@@ -122,10 +132,47 @@ In `yolo` the guest can run arbitrary code as the host. There is no way to offer
 mitigation is social, not technical: only elevate for someone you would hand your
 keyboard to.
 
+## Input arbitration
+
+Two writers on one pty interleave. Concretely: the host is mid-typing
+`deploy to prod` when an approved guest message injects, the text splices into
+the half-written line, and the trailing Enter submits something neither of them
+wrote. Three mechanisms stop that:
+
+**A write queue.** Every text injection is serialised behind the last one. Keys
+skip the queue deliberately: they are single atomic keystrokes and should not
+wait out a text injection's timeout.
+
+**A draft guard.** Before injecting, the relay reads the input box. Anything in
+it is the host's unsent draft, so the message is held and the host is told why.
+
+**A settle step.** `send-keys` returns once tmux has queued the keys, well
+before the session renders them. Without waiting for the box to read empty twice
+running, the next queued message catches the previous one mid-render and is held
+as a phantom draft. This cost two wrong fixes before the cause was clear.
+
+What remains unhandled is the host starting to type in the same instant an
+injection lands. That needs a lock the TUI does not offer.
+
+## Reading the screen
+
+Pane state and the draft both come from parsing a plain `capture-pane`, and both
+subtleties here were found the hard way, so `classifyScreen` and `readPromptBox`
+are pure functions with their own tests:
+
+- **The footer is not a reliable signal.** It reads `? for shortcuts` when idle,
+  but that disappears the moment the host types a character, so footer-keyed
+  detection reports `unknown` for any drafted pane. The input box is identified
+  structurally instead: a prompt marker directly under a full-width rule.
+- **Submitted turns are echoed with the same marker.** Scanning for a bare
+  marker finds the last submitted message and reports it as an unsent draft, so
+  every follow-up message looks like it would splice into one.
+- **No input box is `null`, not `''`.** The box vanishes briefly during redraws,
+  and conflating that with "empty" is what made the settle step necessary.
+
 ## Open work
 
-- Input arbitration between host and guest typing simultaneously.
 - Scrollback replay for guests joining mid-session (currently seeded with
   `capture-pane`, so only the visible screen).
-- Pane file grows for the lifetime of the session; needs rotation.
 - Transcript enrichment stream is designed but not yet wired.
+- Pane geometry is fixed at 200x50 until a client attaches; no flag for it yet.

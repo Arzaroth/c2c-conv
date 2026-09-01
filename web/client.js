@@ -187,6 +187,10 @@ function handle(msg) {
       paneState = msg.state
       refreshKeypad()
       break
+    case 'resize':
+      term.resize(msg.cols, msg.rows)
+      rescale()
+      break
     case 'key:refused':
       el.hint.innerHTML = 'Only the host can answer that. Ask them for <b>yolo</b>.'
       break
@@ -216,7 +220,9 @@ function handle(msg) {
       renderPending()
       break
     case 'policy:held':
-      el.hint.innerHTML = `Held: the session is <b>${msg.state}</b>. Try again once it is idle.`
+      el.hint.innerHTML = msg.state === 'draft'
+        ? 'Held: the host has an unsent draft in the prompt box.'
+        : `Held: the session is <b>${msg.state}</b>. Try again once it is idle.`
       break
     case 'notice':
       term.write(`\r\n\x1b[38;5;246m[c2c] ${msg.text}\x1b[39m\r\n`)

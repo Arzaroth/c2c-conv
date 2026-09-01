@@ -73,18 +73,40 @@ export async function paneAlive(name) {
 
 const DIALOG = [/Enter to confirm/i, /Esc to (cancel|reject|go back)/i]
 const BUSY = [/esc to interrupt/i]
-const PROMPT = [/for shortcuts/]
+
+// The footer text changes as soon as the host types a draft, so the input box
+// is identified structurally instead: a prompt marker sitting directly under
+// the box's top rule. Prompt markers in the scrollback are the echo of previous
+// turns and have no rule above them, so scanning for a bare marker would read
+// the last submitted message back as if it were an unsent draft.
+// Returns null when there is no input box on screen at all.
+export function readPromptBox(screen) {
+  const tail = screen.split('\n').slice(-8)
+  const index = tail.findIndex((line) => /^\s*❯/.test(line))
+  if (index <= 0 || !/^\s*─{20,}/.test(tail[index - 1])) return null
+  return tail[index].replace(/^\s*❯\s?/, '').trim()
+}
 
 // Injecting text while a modal is up types into nothing and the trailing Enter
 // confirms whatever option is highlighted, so every write path has to check
 // this first.
-export async function paneState(name) {
-  if (!(await paneAlive(name))) return 'dead'
-  const screen = await capturePlain(name)
+export function classifyScreen(screen) {
   if (DIALOG.some((re) => re.test(screen))) return 'dialog'
   if (BUSY.some((re) => re.test(screen))) return 'busy'
-  if (PROMPT.some((re) => re.test(screen))) return 'prompt'
+  if (readPromptBox(screen) !== null) return 'prompt'
   return 'unknown'
+}
+
+export async function paneState(name) {
+  if (!(await paneAlive(name))) return 'dead'
+  return classifyScreen(await capturePlain(name))
+}
+
+// Anything sitting in the input box is the host's unsent draft, and injecting
+// would splice guest text into the middle of it. null means the box is not on
+// screen, which is not the same as it being empty.
+export async function promptDraft(name) {
+  return readPromptBox(await capturePlain(name))
 }
 
 export async function waitForPrompt(name, timeoutMs = 15000) {

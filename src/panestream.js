@@ -39,6 +39,10 @@ export class PaneStream extends EventEmitter {
     return this.#position
   }
 
+  rewind() {
+    this.#position = 0
+  }
+
   async #drain() {
     if (this.#reading || this.#stopped || !this.#handle) return
     this.#reading = true
