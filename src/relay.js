@@ -445,7 +445,13 @@ export class Relay {
       case 'deny-all':
         return { ok: true, denied: this.#policy.denyAll() }
       case 'stop':
-        setTimeout(() => process.exit(0), 50)
+        // Same courtesy the watchdog path gives: tell guests before going, and
+        // clean up rather than exiting on the spot.
+        this.announceEnd('the session ended')
+        setTimeout(async () => {
+          await this.stop()
+          process.exit(0)
+        }, 150)
         return { ok: true, stopping: true }
       default:
         return { ok: false, error: `unknown command: ${msg.cmd}` }

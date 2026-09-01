@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync, spawn } from 'node:child_process'
-import { connect } from 'node:net'
+import { connect, createServer } from 'node:net'
 import { hostname, networkInterfaces } from 'node:os'
 import { readFile } from 'node:fs/promises'
 import { openSync } from 'node:fs'
@@ -82,6 +82,14 @@ async function cmdHost({ opts, passthrough }) {
     process.exit(1)
   }
 
+  // Running a second shared session hits this every time, since the port
+  // defaults. Catching it here beats starting a tmux session, failing, killing
+  // it again and pointing at a log.
+  if (!(await portFree(opts.port, opts.host))) {
+    console.error(`port ${opts.port} is already in use - pick another with -p`)
+    process.exit(1)
+  }
+
   const claudeArgs = (passthrough ?? []).map(shellQuote).join(' ')
   const command = claudeArgs ? `claude ${claudeArgs}` : 'claude'
 
@@ -150,6 +158,15 @@ async function cmdHost({ opts, passthrough }) {
   }
 }
 
+function portFree(port, host) {
+  return new Promise((done) => {
+    const probe = createServer()
+    probe.once('error', () => done(false))
+    probe.once('listening', () => probe.close(() => done(true)))
+    probe.listen(port, host)
+  })
+}
+
 function isLoopback(host) {
   return host === '127.0.0.1' || host === '::1' || host === 'localhost'
 }
@@ -170,8 +187,19 @@ function lanAddresses() {
     .map((nic) => nic.address)
 }
 
+// Only advertise addresses that are actually listening. A socket bound to one
+// address does not answer on the others, so listing every interface hands the
+// guest URLs that refuse the connection.
+function reachableAddresses(host) {
+  if (host === '0.0.0.0' || host === '::') return ['127.0.0.1', ...lanAddresses()]
+  return [host]
+}
+
 function printInvite(meta, opts) {
   const host = opts?.host ?? '127.0.0.1'
+  const reachable = reachableAddresses(host)
+  const tailnet = tailscaleAddress()
+
   console.log('  how your guest gets in:')
 
   if (meta.broker?.url) {
@@ -179,20 +207,19 @@ function printInvite(meta, opts) {
     console.log('              works through NAT on both sides, nothing to forward')
   }
 
-  console.log(`    ssh       ssh -N -L ${meta.port}:127.0.0.1:${meta.port} ${process.env.USER}@${hostname()}`)
+  // The forward has to target an address the relay is actually bound to.
+  const forwardTo = reachable.includes('127.0.0.1') ? '127.0.0.1' : reachable[0]
+  console.log(`    ssh       ssh -N -L ${meta.port}:${forwardTo}:${meta.port} ${process.env.USER}@${hostname()}`)
   console.log(`              then open http://127.0.0.1:${meta.port}/?t=${meta.token}`)
 
-  const ts = tailscaleAddress()
-  if (ts && !isLoopback(host)) {
-    console.log(`    tailscale http://${ts}:${meta.port}/?t=${meta.token}`)
-  } else if (ts) {
-    console.log(`    tailscale rebind with --bind ${ts} to serve the tailnet directly`)
+  for (const address of reachable) {
+    if (address === '127.0.0.1') continue
+    const label = address === tailnet ? 'tailscale' : 'lan      '
+    console.log(`    ${label} http://${address}:${meta.port}/?t=${meta.token}`)
   }
 
-  if (!isLoopback(host)) {
-    for (const address of lanAddresses()) {
-      console.log(`    lan       http://${address}:${meta.port}/?t=${meta.token}`)
-    }
+  if (isLoopback(host) && tailnet) {
+    console.log(`    tailscale rebind with --bind ${tailnet} to serve the tailnet directly`)
   }
   console.log('')
 }

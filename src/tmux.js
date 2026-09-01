@@ -47,7 +47,12 @@ export async function configureHost(name, { node, cli, status }) {
   // Output from run-shell is opened in a view-mode pane, which hijacks the
   // session: the pane stops being claude and starts interpreting keystrokes as
   // copy-mode commands. The bindings have to be completely silent.
-  const run = (args) => `${quote(node)} ${quote(cli)} ${args} -s ${quote(name)} >/dev/null 2>&1`
+  //
+  // #{session_name} is resolved by tmux when the key is pressed. Baking the name
+  // in would be wrong with more than one shared session, because key tables are
+  // server-global: the last session configured would win, and approving from one
+  // session would release a message into another.
+  const run = (args) => `${quote(node)} ${quote(cli)} ${args} -s '#{session_name}' >/dev/null 2>&1`
 
   await tmux(['set-option', '-t', name, 'status', 'on'])
   await tmux(['set-option', '-t', name, 'status-interval', '2'])
