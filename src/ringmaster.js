@@ -220,11 +220,15 @@ export class Ringmaster {
     await this.#reseed()
   }
 
-  // Prefer a URL a browser can actually reach from elsewhere.
-  #bestUrl() {
-    if (this.#tunnelUrl) return `${this.#tunnelUrl}/?t=${this.#token}`
-    if (this.bigtop) return this.bigtop.bozoUrl
-    return this.local.url
+  #links() {
+    const tunnel = this.#tunnelUrl ? `${this.#tunnelUrl}/?t=${this.#token}` : null
+    // The whiteface link goes on whichever URL a browser can reach from elsewhere.
+    const reach = tunnel ?? this.bigtop?.bozoUrl ?? this.local.url
+    return {
+      url: this.local.url,
+      tunnel,
+      whitefaceUrl: this.#whitefaceToken ? `${reach}&w=${this.#whitefaceToken}` : null,
+    }
   }
 
   async #writeMeta() {
@@ -238,11 +242,8 @@ export class Ringmaster {
       pid: process.pid,
       port: local.port,
       token: this.#token,
-      url: local.url,
+      ...this.#links(),
       bigtop: this.bigtop ? { url: this.bigtop.bozoUrl } : null,
-      tunnel: this.#tunnelUrl ? `${this.#tunnelUrl}/?t=${this.#token}` : null,
-      whiteface: Boolean(this.#whitefaceToken),
-      whitefaceUrl: this.#whitefaceToken ? `${this.#bestUrl()}&w=${this.#whitefaceToken}` : null,
     }
   }
 
@@ -557,10 +558,7 @@ export class Ringmaster {
           mode: this.#policy.mode,
           bozos: [...this.#bozos.values()].map((g) => ({ id: g.id, name: g.name, via: g.origin })),
           pending: this.#policy.list(),
-          url: this.url,
-          tunnel: this.#tunnelUrl ? `${this.#tunnelUrl}/?t=${this.#token}` : null,
-      whiteface: Boolean(this.#whitefaceToken),
-      whitefaceUrl: this.#whitefaceToken ? `${this.#bestUrl()}&w=${this.#whitefaceToken}` : null,
+          ...this.#links(),
           bigtop: this.bigtop
             ? { url: this.bigtop.bozoUrl, connected: this.bigtop.connected, last: this.#bigtopStatus }
             : null,

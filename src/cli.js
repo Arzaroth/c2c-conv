@@ -167,7 +167,7 @@ async function cmdHost({ opts, passthrough }) {
       : '  mode        gallery (bozos need your approval to send)'
   )
   console.log('')
-  if (meta.whiteface) {
+  if (meta.whitefaceUrl) {
     console.log('  your own link, which makes you the whiteface (keep it to yourself):')
     console.log(`    ${meta.whitefaceUrl}`)
     console.log('    it gives you approve, deny and the mode switch in the browser')
