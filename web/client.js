@@ -84,8 +84,8 @@ function renderHistory() {
   for (const entry of history) el.historyList.appendChild(turnElement(entry))
 }
 
-document.getElementById('mode').addEventListener('click', () => {
-  if (whiteface) ask({ type: 'mode', mode: 'toggle' })
+el.mode.addEventListener('click', () => {
+  if (whiteface) send({ type: 'mode', mode: 'toggle' })
 })
 
 el.historyToggle.addEventListener('click', () => {
@@ -115,8 +115,7 @@ function refreshKeypad() {
 
 el.keypad.addEventListener('click', (event) => {
   const key = event.target.dataset?.key
-  if (!key || socket?.readyState !== WebSocket.OPEN) return
-  socket.send(JSON.stringify({ type: 'key', key }))
+  if (key) send({ type: 'key', key })
 })
 
 const term = new Terminal({
@@ -215,6 +214,10 @@ function setMode(next) {
   refreshKeypad()
 }
 
+function send(payload) {
+  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload))
+}
+
 function setLink(up) {
   el.link.textContent = up ? 'live' : 'offline'
   el.link.className = `badge link${up ? '' : ' down'}`
@@ -246,11 +249,11 @@ function renderPending() {
       const release = document.createElement('button')
       release.className = 'ring-btn go'
       release.textContent = 'release'
-      release.onclick = () => ask({ type: 'approve', id: entry.id })
+      release.onclick = () => send({ type: 'approve', id: entry.id })
       const drop = document.createElement('button')
       drop.className = 'ring-btn'
       drop.textContent = 'drop'
-      drop.onclick = () => ask({ type: 'deny', id: entry.id })
+      drop.onclick = () => send({ type: 'deny', id: entry.id })
       row.append(spacer, release, drop)
     }
 
@@ -395,8 +398,8 @@ function handle(msg) {
 el.form.addEventListener('submit', (event) => {
   event.preventDefault()
   const text = el.text.value.trim()
-  if (!text || socket?.readyState !== WebSocket.OPEN) return
-  socket.send(JSON.stringify({ type: 'submit', text }))
+  if (!text) return
+  send({ type: 'submit', text })
   el.text.value = ''
 })
 
@@ -406,17 +409,11 @@ el.who.value = name
 // HOINK is the greeting: the bozo announces itself and the ringmaster hoinks
 // back with the mode, the pane size and the current screen.
 function hoink() {
-  if (socket?.readyState !== WebSocket.OPEN) return
-  socket.send(JSON.stringify({ type: 'hoink', name, whiteface: whitefaceToken || undefined }))
-}
-
-function ask(payload) {
-  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload))
+  send({ type: 'hoink', name, whiteface: whitefaceToken || undefined })
 }
 
 function announce() {
-  if (socket?.readyState !== WebSocket.OPEN) return
-  socket.send(JSON.stringify({ type: 'name', name }))
+  send({ type: 'name', name })
 }
 
 el.who.addEventListener('change', () => {
