@@ -10,6 +10,7 @@ import { randomBytes } from 'node:crypto'
 
 import * as tmux from './tmux.js'
 import { Ringmaster } from './ringmaster.js'
+import { GALLERY, YOLO } from './policy.js'
 import { controlSocket, ensureStateDir, metaFile, stateDir, statusFile } from './paths.js'
 import { version, versionReport } from './version.js'
 
@@ -37,9 +38,7 @@ function parseArgs(argv) {
     else if (arg === '--bind') opts.host = argv[++i]
     else if (arg === '--cwd') opts.cwd = resolve(argv[++i])
     else if (arg === '--no-attach') opts.attach = false
-    // Headless is only usable in yolo: the approval keys need an attached
-    // terminal, so a detached gallery session is one nobody can ever release.
-    else if (arg === '--yolo') opts.mode = 'yolo'
+    else if (arg === '--yolo') opts.mode = YOLO
     else if (arg === '--mode') opts.mode = MODE_ALIASES[argv[++i]] ?? argv[i]
     else if (arg === '--tunnel') opts.tunnel = true
     // --broker kept as an alias: it was the flag before the bigtop rename, and
@@ -92,6 +91,13 @@ async function cmdHost({ opts, passthrough }) {
   // with nothing on screen explaining why.
   if (opts.token && opts.token.length < 8) {
     console.error('--token must be at least 8 characters: it is the only thing protecting the session')
+    process.exit(1)
+  }
+
+  // The ringmaster would refuse it too, but only after the tmux session is up
+  // and the host has timed out waiting for it.
+  if (opts.mode && opts.mode !== GALLERY && opts.mode !== YOLO) {
+    console.error(`--mode must be gallery or yolo, not "${opts.mode}"`)
     process.exit(1)
   }
 
@@ -156,7 +162,7 @@ async function cmdHost({ opts, passthrough }) {
   }
   printInvite(ready, opts)
   console.log(
-    opts.mode === 'yolo'
+    opts.mode === YOLO
       ? '  mode        YOLO - bozo messages go straight in, with your permissions'
       : '  mode        gallery (bozos need your approval to send)'
   )
@@ -175,8 +181,7 @@ async function cmdHost({ opts, passthrough }) {
   console.log('  the status bar shows mode, bozos, and what is waiting.')
   console.log('')
 
-
-  if (opts.mode === 'yolo' && !opts.attach) {
+  if (opts.mode === YOLO && !opts.attach) {
     console.log('warning: headless and in yolo. Nobody is watching the pane, and any bozo')
     console.log('         with the link runs commands as you. Keep the link tight.')
     console.log('')
