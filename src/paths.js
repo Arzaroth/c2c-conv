@@ -23,3 +23,7 @@ export function paneFile(name) {
 export function metaFile(name) {
   return join(stateDir(name), 'relay.json')
 }
+
+export function statusFile(name) {
+  return join(stateDir(name), 'status.txt')
+}

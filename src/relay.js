@@ -4,10 +4,10 @@ import { randomBytes } from 'node:crypto'
 
 import * as tmux from './tmux.js'
 import { PaneStream } from './panestream.js'
-import { Policy, SPECTATOR } from './policy.js'
+import { Policy, SPECTATOR, YOLO } from './policy.js'
 import { LocalTransport } from './transport/local.js'
 import { BrokerTransport } from './transport/broker.js'
-import { controlSocket, ensureStateDir, metaFile, paneFile } from './paths.js'
+import { controlSocket, ensureStateDir, metaFile, paneFile, statusFile } from './paths.js'
 
 const MAX_PANE_BYTES = Number(process.env.C2C_MAX_PANE_BYTES) || 8 * 1024 * 1024
 
@@ -81,6 +81,7 @@ export class Relay {
     }
 
     this.#watchPaneState()
+    await this.#writeStatusLine()
 
     await this.#startControl()
     await writeFile(metaFile(this.#session), JSON.stringify(this.#meta(), null, 2))
@@ -164,6 +165,7 @@ export class Relay {
     channel.on('text', (raw) => this.#onGuestMessage(guest, raw))
     channel.on('close', () => {
       this.#guests.delete(channel.id)
+      this.#writeStatusLine()
       this.#notifyHost(`c2c: ${guest.name} left (${this.#guests.size} connected)`)
     })
 
@@ -181,6 +183,7 @@ export class Relay {
       data: await tmux.capturePane(this.#session),
       cursor: await tmux.cursor(this.#session),
     })
+    this.#writeStatusLine()
     this.#notifyHost(`c2c: a guest connected via ${channel.origin} (${this.#guests.size} connected)`)
   }
 
@@ -276,15 +279,43 @@ export class Relay {
   #onPolicyEvent(event) {
     if (event.type === 'approved') {
       this.#inject(event.text)
+      this.#notifyHost(`c2c: released #${event.id} from ${event.guest}`)
+    }
+    if (event.type === 'denied') {
+      this.#notifyHost(`c2c: dropped #${event.id} from ${event.guest}`)
     }
     if (event.type === 'queued') {
-      this.#notifyHost(`c2c: ${event.guest} wants to send #${event.id} - c2c ctl approve ${event.id}`)
+      this.#notifyHost(`c2c: ${event.guest} wants to send #${event.id} - prefix+a to release`)
+    }
+    if (event.type === 'mode') {
+      this.#notifyHost(`c2c: mode is now ${event.mode}`)
     }
     this.#broadcastJson({ ...event, type: `policy:${event.type}` })
+    this.#writeStatusLine()
   }
 
   #notifyHost(message) {
     tmux.notify(this.#session, message)
+  }
+
+  // Kept in a file so the tmux status line is a cheap cat rather than a node
+  // process spawned every couple of seconds.
+  async #writeStatusLine() {
+    const pending = this.#policy.list().length
+    const guests = this.#guests.size
+    const mode = this.#policy.mode === YOLO ? '#[fg=#ff2e4c,bold]YOLO' : '#[fg=#ffd93d]spectator'
+
+    const parts = [
+      `#[fg=#9a90b0]c2c ${mode}#[default]`,
+      `#[fg=#9a90b0]${guests} guest${guests === 1 ? '' : 's'}`,
+    ]
+    if (pending) {
+      parts.push(`#[fg=#ffd93d,bold]${pending} waiting#[default] #[fg=#9a90b0](prefix+a approve, prefix+d deny)`)
+    }
+
+    try {
+      await writeFile(statusFile(this.#session), parts.join(' #[fg=#362c4a]|#[default] ') + ' ')
+    } catch {}
   }
 
   #broadcastJson(value) {
@@ -338,8 +369,24 @@ export class Relay {
             ? { url: this.broker.guestUrl, connected: this.broker.connected, last: this.#brokerStatus }
             : null,
         }
-      case 'mode':
-        return { ok: true, mode: this.#policy.setMode(msg.mode) }
+      case 'mode': {
+        const next = msg.mode === 'toggle'
+          ? (this.#policy.mode === YOLO ? SPECTATOR : YOLO)
+          : msg.mode
+        return { ok: true, mode: this.#policy.setMode(next) }
+      }
+      case 'approve-next':
+      case 'deny-next': {
+        const [oldest] = this.#policy.list()
+        if (!oldest) {
+          this.#notifyHost('c2c: nothing waiting')
+          return { ok: true, pending: 0 }
+        }
+        const entry = msg.cmd === 'approve-next'
+          ? this.#policy.approve(oldest.id)
+          : this.#policy.deny(oldest.id)
+        return { ok: true, [msg.cmd === 'approve-next' ? 'approved' : 'denied']: entry }
+      }
       case 'list':
         return { ok: true, pending: this.#policy.list() }
       case 'approve': {

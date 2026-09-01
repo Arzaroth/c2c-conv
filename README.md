@@ -52,16 +52,32 @@ Details and wire protocol in [docs/TRANSPORTS.md](docs/TRANSPORTS.md).
 ## The two modes
 
 Guests start as **spectators**. They see everything, and anything they send waits
-for you:
+for you. You handle it without leaving the session:
+
+| key | |
+|---|---|
+| `prefix + a` | release the next waiting message |
+| `prefix + d` | drop it |
+| `prefix + y` | toggle spectator / yolo |
+
+The status bar carries the state the whole time, so you are never guessing:
+
+```
+c2c spectator | 1 guest | 2 waiting (prefix+a approve, prefix+d deny)
+```
+
+This is deliberate. Spectator is both the default and the safe mode, and if
+approving meant switching to another terminal to type a command, people would
+just leave the session in yolo instead. A safe path that is annoying is not a
+safe path.
+
+There is a full CLI too, for scripting or a second window:
 
 ```
 c2c ctl status            # who is connected, what is waiting
-c2c ctl approve 3         # release message #3 into the session
+c2c ctl approve 3         # release a specific message
 c2c ctl deny 3
 ```
-
-You get a tmux notice in your pane whenever something queues up, so you do not
-have to watch a second window.
 
 ## When the session asks a question
 

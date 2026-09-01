@@ -154,6 +154,23 @@ as a phantom draft. This cost two wrong fixes before the cause was clear.
 What remains unhandled is the host starting to type in the same instant an
 injection lands. That needs a lock the TUI does not offer.
 
+## Host controls
+
+The host drives everything from inside the session: `prefix + a` releases the
+next waiting message, `prefix + d` drops it, `prefix + y` toggles the mode. The
+bindings live on the dedicated `-L c2c` tmux server, so they cannot collide with
+the host's own tmux config, and each one shells back into `c2c ctl`.
+
+This is a security property, not a convenience. Spectator is the default and the
+safe mode; if approving required leaving the session to type a command, the
+practical outcome is everyone parking in yolo. The safe path has to be the easy
+one.
+
+The status line reads a file the relay rewrites on every state change, rather
+than spawning a node process every couple of seconds the way a `#(c2c ctl ...)`
+status command would. tmux only runs `#()` jobs while a client is attached, so
+it costs nothing when the host is detached.
+
 ## Reading the screen
 
 Pane state and the draft both come from parsing a plain `capture-pane`, and both

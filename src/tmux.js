@@ -29,6 +29,33 @@ export async function newSession({ name, cwd, command, cols = 200, rows = 50 }) 
   ])
 }
 
+// The status line reads a file the relay keeps up to date rather than shelling
+// out to the CLI every couple of seconds.
+export async function configureHost(name, { node, cli, status }) {
+  const quote = (value) => `'${String(value).replace(/'/g, `'\\''`)}'`
+  const run = (args) => `${quote(node)} ${quote(cli)} ${args} -s ${quote(name)}`
+
+  await tmux(['set-option', '-t', name, 'status', 'on'])
+  await tmux(['set-option', '-t', name, 'status-interval', '2'])
+  await tmux(['set-option', '-t', name, 'status-style', 'bg=#1a1624,fg=#f4efff'])
+  await tmux(['set-option', '-t', name, 'status-left', ''])
+  await tmux(['set-option', '-t', name, 'window-status-format', ''])
+  await tmux(['set-option', '-t', name, 'window-status-current-format', ''])
+  await tmux(['set-option', '-t', name, 'status-right-length', '120'])
+  await tmux([
+    'set-option', '-t', name, 'status-right',
+    `#(cat ${JSON.stringify(status)} 2>/dev/null)`,
+  ])
+
+  for (const [key, args] of [
+    ['a', 'ctl approve-next'],
+    ['d', 'ctl deny-next'],
+    ['y', 'ctl mode toggle'],
+  ]) {
+    await tmux(['bind-key', '-T', 'prefix', key, 'run-shell', '-b', run(args)])
+  }
+}
+
 export async function killSession(name) {
   try {
     await tmux(['kill-session', '-t', name])

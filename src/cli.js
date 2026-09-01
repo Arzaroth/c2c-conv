@@ -10,7 +10,7 @@ import { randomBytes } from 'node:crypto'
 
 import * as tmux from './tmux.js'
 import { Relay } from './relay.js'
-import { controlSocket, ensureStateDir, metaFile, stateDir } from './paths.js'
+import { controlSocket, ensureStateDir, metaFile, stateDir, statusFile } from './paths.js'
 
 const SELF = fileURLToPath(import.meta.url)
 const ROOT = join(dirname(SELF), '..')
@@ -81,6 +81,11 @@ async function cmdHost({ opts, passthrough }) {
   await tmux.newSession({ name: opts.session, cwd: opts.cwd, command })
 
   const dir = await ensureStateDir(opts.session)
+  await tmux.configureHost(opts.session, {
+    node: process.execPath,
+    cli: SELF,
+    status: statusFile(opts.session),
+  })
   const token = opts.token || randomBytes(16).toString('hex')
   const log = openSync(join(dir, 'relay.log'), 'a')
 
@@ -110,7 +115,12 @@ async function cmdHost({ opts, passthrough }) {
   console.log('')
   printInvite(meta, opts)
   console.log(`  mode        spectator (guests need your approval to send)`)
-  console.log(`  control     c2c ctl status | c2c ctl mode yolo | c2c ctl approve <id>`)
+  console.log('')
+  console.log('  in the session, without leaving it:')
+  console.log('    prefix + a  release the next waiting message')
+  console.log('    prefix + d  drop it')
+  console.log('    prefix + y  toggle spectator / yolo')
+  console.log('  the status bar shows mode, guests, and what is waiting.')
   console.log('')
 
   if (!isLoopback(opts.host)) {
@@ -276,6 +286,8 @@ function buildControlMessage(sub, args) {
     case 'list':
     case 'approve-all':
     case 'deny-all':
+    case 'approve-next':
+    case 'deny-next':
       return { cmd: sub }
     case 'mode':
       return { cmd: 'mode', mode: args[0] }
