@@ -1,6 +1,6 @@
 [Unit]
 Description=c2c-conv rendezvous bigtop
-Documentation=https://github.com/arzaroth/c2c-conv/blob/main/docs/TRANSPORTS.md
+Documentation=https://github.com/arzaroth/c2c-conv/blob/master/docs/TRANSPORTS.md
 After=network-online.target
 Wants=network-online.target
 
