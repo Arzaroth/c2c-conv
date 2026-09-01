@@ -175,6 +175,41 @@ If you would rather have no gate at all, `--yolo` starts wide open. Then the
 link is the whole security boundary: anyone holding it runs commands as you,
 unwatched.
 
+## In a container
+
+```sh
+cd ~/my-project
+mise run docker:build                                  # once
+C2C_UID=$(id -u) C2C_GID=$(id -g) docker compose -f ~/repos/c2c-conv/compose.yaml up
+```
+
+The image has node, tmux, claude and cloudflared. The container runs one
+headless session for the directory you started it from, over a tunnel, and
+prints the bozo link and your whiteface link in its log. `docker stop` ends the
+session the way `c2c stop` does.
+
+It gets three things from outside, all in [compose.yaml](compose.yaml):
+
+- **Your login.** `~/.claude` and `~/.claude.json` are bind-mounted, so log in
+  on the host once. On macOS the login lives in the Keychain, so instead log in
+  once from inside the container, which writes it into the mounted directory:
+  `docker compose run --rm --entrypoint claude c2c`.
+- **The project.** Mounted at the same path it has on the host, so the
+  transcript and the workspace trust claude already recorded for it carry over.
+- **The port.** Published on loopback only. Inside, c2c binds every interface
+  and says so; the published port is the boundary that warning is about.
+
+If claude asks whether to trust the folder, the session waits on that dialog.
+Trust it on the host once and the container inherits the answer, or answer it
+from the whiteface link: the keypad works for the whiteface in either mode.
+
+`C2C_ARGS` replaces the default `--tunnel`: `C2C_ARGS="--tunnel --yolo"`, or
+`--bigtop wss://...`. For the terminal, `docker compose exec c2c c2c attach`;
+for the rest, `docker compose exec c2c c2c ctl status`.
+
+The trust model shifts with the container: in yolo, a bozo now runs commands as
+the container user over the mounted paths rather than as you over everything.
+
 ## How many bozos
 
 Up to **30** at once, per session and per bigtop room. A clown car holds about

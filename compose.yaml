@@ -1,0 +1,25 @@
+# Share the directory you run this from, headless, from a container.
+#
+#   cd ~/my-project
+#   C2C_UID=$(id -u) C2C_GID=$(id -g) docker compose -f ~/repos/c2c-conv/compose.yaml up
+#
+# The project is mounted at the same path it has on the host, so the transcript
+# and the workspace trust claude already recorded for it carry over.
+services:
+  c2c:
+    build:
+      context: .
+      args:
+        UID: ${C2C_UID:-1000}
+        GID: ${C2C_GID:-1000}
+    image: c2c-conv
+    init: true
+    stop_grace_period: 15s
+    ports:
+      - "127.0.0.1:7331:7331"
+    volumes:
+      - ~/.claude:/home/c2c/.claude
+      - ~/.claude.json:/home/c2c/.claude.json
+      - ${PWD}:${PWD}
+    working_dir: ${PWD}
+    command: ${C2C_ARGS:---tunnel}

@@ -62,3 +62,11 @@ run = 'node "{{config_root}}/src/cli.js" invite'
 [tasks.stop]
 description = "Tear the session down"
 run = 'node "{{config_root}}/src/cli.js" stop'
+
+[tasks."docker:build"]
+description = "Build the c2c image, with the image user matching yours"
+run = 'docker build --build-arg UID="$(id -u)" --build-arg GID="$(id -g)" -t c2c-conv "{{config_root}}"'
+
+[tasks."docker:host"]
+description = "Share the current directory headless from a container, over a tunnel"
+run = 'C2C_UID="$(id -u)" C2C_GID="$(id -g)" docker compose -f "{{config_root}}/compose.yaml" up'
