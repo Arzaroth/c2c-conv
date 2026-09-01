@@ -195,6 +195,7 @@ const pending = new Map()
 let mode = 'spectator'
 let socket = null
 let retry = 500
+let ended = false
 
 function setMode(next) {
   mode = next
@@ -255,6 +256,8 @@ function connect() {
 
   socket.onclose = () => {
     setLink(false)
+    // The host's session is gone for good, so retrying would just spin.
+    if (ended) return
     setTimeout(connect, retry)
     retry = Math.min(retry * 2, 8000)
   }
@@ -283,6 +286,11 @@ function handle(msg) {
     case 'resize':
       term.resize(msg.cols, msg.rows)
       rescale()
+      break
+    case 'rejected':
+      el.hint.innerHTML = msg.reason === 'queue full'
+        ? 'Not sent: too many messages are already waiting for the host.'
+        : 'Not sent: that message is too long.'
       break
     case 'key:refused':
       el.hint.innerHTML = 'Only the host can answer that. Ask them for <b>yolo</b>.'
@@ -318,6 +326,13 @@ function handle(msg) {
         : `Held: the session is <b>${msg.state}</b>. Try again once it is idle.`
       break
     case 'notice':
+      term.write(`\r\n\x1b[38;5;246m[c2c] ${msg.text}\x1b[39m\r\n`)
+      break
+    case 'bye':
+      ended = true
+      el.link.textContent = 'ended'
+      el.hint.textContent = `${msg.text}. Nothing more will arrive.`
+      el.send.disabled = true
       term.write(`\r\n\x1b[38;5;246m[c2c] ${msg.text}\x1b[39m\r\n`)
       break
     case 'transcript:history':

@@ -100,6 +100,15 @@ export class Relay {
     await writeFile(metaFile(this.#session), JSON.stringify(this.#meta(), null, 2))
   }
 
+  announce(text) {
+    this.#broadcastJson({ type: 'notice', text })
+  }
+
+  // Distinct from a notice so guests know not to keep reconnecting.
+  announceEnd(text) {
+    this.#broadcastJson({ type: 'bye', text })
+  }
+
   async stop() {
     clearInterval(this.#stateTimer)
     await this.#transcript?.stop()
@@ -107,7 +116,8 @@ export class Relay {
     await this.#pane?.stop()
     for (const transport of this.#transports) await transport.stop()
     this.#control?.close()
-    for (const path of [controlSocket(this.#session), metaFile(this.#session)]) {
+    // pane.raw is a transient buffer, not a record. relay.log stays.
+    for (const path of [controlSocket(this.#session), metaFile(this.#session), paneFile(this.#session)]) {
       try {
         await unlink(path)
       } catch {}
@@ -232,6 +242,8 @@ export class Relay {
         guest.channel.sendJson({ type: 'accepted', text: result.text })
       } else if (result.action === 'queued') {
         guest.channel.sendJson({ type: 'pending', id: result.id, text: msg.text })
+      } else if (result.action === 'rejected') {
+        guest.channel.sendJson({ type: 'rejected', reason: result.reason })
       }
     }
   }

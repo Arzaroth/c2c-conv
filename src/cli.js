@@ -255,6 +255,9 @@ async function cmdRelay() {
   setInterval(async () => {
     if (!(await tmux.hasSession(session))) {
       console.log('[relay] tmux session gone, shutting down')
+      // Otherwise guests just see the socket drop and reconnect forever.
+      relay.announceEnd('the session ended')
+      await new Promise((r) => setTimeout(r, 150))
       await shutdown()
     }
   }, 2000)

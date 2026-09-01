@@ -3,6 +3,11 @@ import { EventEmitter } from 'node:events'
 
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 
+// A peer can declare a payload length far larger than it ever intends to send.
+// Without a cap the receive buffer grows until the process dies, so an oversized
+// frame ends the connection instead.
+export const MAX_MESSAGE = 1024 * 1024
+
 const TEXT = 0x1
 const BINARY = 0x2
 const CLOSE = 0x8
@@ -100,6 +105,11 @@ export class WebSocket extends EventEmitter {
 
   #feed(chunk) {
     this.#buffer = this.#buffer.length ? Buffer.concat([this.#buffer, chunk]) : chunk
+    // Covers a peer that dribbles bytes towards an oversized frame it declared.
+    if (this.#buffer.length > MAX_MESSAGE + 1024) {
+      this.close()
+      return
+    }
     while (this.#step()) {}
   }
 
@@ -126,6 +136,11 @@ export class WebSocket extends EventEmitter {
       }
       len = Number(big)
       offset += 8
+    }
+
+    if (len > MAX_MESSAGE) {
+      this.close()
+      return false
     }
 
     // RFC 6455 requires every client-to-server frame to be masked.
@@ -159,6 +174,12 @@ export class WebSocket extends EventEmitter {
     } else {
       this.#fragments = [payload]
       this.#fragmentOpcode = opcode
+    }
+
+    // Each fragment can be under the cap while the reassembled message is not.
+    if (this.#fragments.reduce((total, part) => total + part.length, 0) > MAX_MESSAGE) {
+      this.close()
+      return false
     }
 
     if (fin) {

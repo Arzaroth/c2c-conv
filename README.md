@@ -12,7 +12,18 @@ how that was verified.
 
 ## Requirements
 
-`tmux`, `node >= 20`, and `claude` on PATH. No npm install, no dependencies.
+`tmux`, `node >= 20`, and `claude` on PATH. No dependencies to install.
+
+## Install
+
+There is nothing to build. Put `c2c` on your PATH with either:
+
+```sh
+npm link                       # symlinks c2c into your npm prefix
+ln -s "$PWD/src/cli.js" ~/.local/bin/c2c
+```
+
+Or skip it entirely and run `node src/cli.js` wherever the docs say `c2c`.
 
 ## Use
 

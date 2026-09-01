@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { Policy, SPECTATOR, YOLO } from '../src/policy.js'
+import { MAX_PENDING, MAX_TEXT, Policy, SPECTATOR, YOLO } from '../src/policy.js'
 
 test('spectator queues instead of sending', () => {
   const policy = new Policy()
@@ -87,4 +87,46 @@ test('unknown modes are rejected', () => {
   const policy = new Policy()
   assert.throws(() => policy.setMode('admin'))
   assert.equal(policy.mode, SPECTATOR)
+})
+
+test('an oversized message is rejected rather than queued', () => {
+  const policy = new Policy()
+  const result = policy.submit({ text: 'x'.repeat(MAX_TEXT + 1), guest: 'bozo' })
+  assert.equal(result.action, 'rejected')
+  assert.equal(result.reason, 'too long')
+  assert.equal(policy.list().length, 0)
+})
+
+test('a message right at the limit still goes through', () => {
+  const policy = new Policy()
+  assert.equal(policy.submit({ text: 'x'.repeat(MAX_TEXT), guest: 'bozo' }).action, 'queued')
+})
+
+// The queue is the one thing a guest can grow without the host agreeing to
+// anything, so it cannot be unbounded.
+test('the pending queue is capped', () => {
+  const policy = new Policy()
+  for (let i = 0; i < MAX_PENDING; i++) {
+    assert.equal(policy.submit({ text: `message ${i}`, guest: 'bozo' }).action, 'queued')
+  }
+  const overflow = policy.submit({ text: 'one too many', guest: 'bozo' })
+  assert.equal(overflow.action, 'rejected')
+  assert.equal(overflow.reason, 'queue full')
+  assert.equal(policy.list().length, MAX_PENDING)
+})
+
+test('draining the queue makes room again', () => {
+  const policy = new Policy()
+  for (let i = 0; i < MAX_PENDING; i++) policy.submit({ text: `m${i}`, guest: 'bozo' })
+  policy.approveAll()
+  assert.equal(policy.submit({ text: 'now there is room', guest: 'bozo' }).action, 'queued')
+})
+
+// yolo has no queue, so the cap must not accidentally gate it.
+test('the queue cap does not apply in yolo', () => {
+  const policy = new Policy()
+  policy.setMode(YOLO)
+  for (let i = 0; i < MAX_PENDING + 10; i++) {
+    assert.equal(policy.submit({ text: `m${i}`, guest: 'bozo' }).action, 'send')
+  }
 })

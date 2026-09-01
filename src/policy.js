@@ -1,6 +1,11 @@
 export const SPECTATOR = 'spectator'
 export const YOLO = 'yolo'
 
+// A message longer than this is not a prompt someone typed, and the queue is
+// what a guest can grow without the host agreeing to anything.
+export const MAX_TEXT = 8000
+export const MAX_PENDING = 50
+
 export const ALLOWED_KEYS = new Set([
   'Up', 'Down', 'Left', 'Right', 'Enter', 'Escape', 'Tab', 'BSpace',
   '1', '2', '3', '4', '5', '6', '7', '8', '9',
@@ -38,10 +43,17 @@ export class Policy {
   submit({ text, guest }) {
     const clean = normalize(text)
     if (!clean) return { action: 'ignored' }
+    if (clean.length > MAX_TEXT) {
+      return { action: 'rejected', reason: 'too long' }
+    }
 
     if (this.#mode === YOLO) {
       this.#emit({ type: 'sent', text: clean, guest })
       return { action: 'send', text: clean }
+    }
+
+    if (this.#pending.size >= MAX_PENDING) {
+      return { action: 'rejected', reason: 'queue full' }
     }
 
     const id = this.#nextId++

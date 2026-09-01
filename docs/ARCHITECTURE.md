@@ -129,6 +129,22 @@ additive and can run simultaneously.
 
 Full detail, wire protocol and deployment: [TRANSPORTS.md](TRANSPORTS.md).
 
+## Limits on what a guest can send
+
+The relay accepts a socket from someone else, over a broker possibly from
+anywhere with the token, so guest input is bounded at both layers:
+
+- **Frames are capped at 1MB.** A peer can declare a payload length of up to
+  2^53 and then send nothing; without a cap the receive buffer grows until the
+  process dies. Oversized declarations, slow dribbling towards one, and
+  fragments that only exceed the cap once reassembled all close the connection.
+- **Messages are capped at 8000 characters.** Longer than that is not a prompt
+  somebody typed.
+- **The pending queue is capped at 50.** It is the one thing a guest can grow
+  without the host agreeing to anything, so it cannot be unbounded. Verified
+  against a live relay with a declared 4GiB frame: connection closed, resident
+  memory unchanged, relay healthy.
+
 ## Security model
 
 The token in the URL is the only credential. It is generated per session and
