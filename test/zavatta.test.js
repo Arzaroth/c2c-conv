@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { stripAnsi } from '../src/mcp.js'
+import { stripAnsi } from '../src/zavatta.js'
 
 test('screen text reaches an agent without escape sequences', () => {
   const raw = '\x1b[1m\x1b[38;5;220mClaude Code\x1b[39m\x1b[22m v2.1.251'

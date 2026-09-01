@@ -36,6 +36,7 @@ function parseArgs(argv) {
     else if (arg === '--bind') opts.host = argv[++i]
     else if (arg === '--cwd') opts.cwd = resolve(argv[++i])
     else if (arg === '--no-attach') opts.attach = false
+    else if (arg === '--tunnel') opts.tunnel = true
     // --broker kept as an alias: it was the flag before the bigtop rename, and
     // it is also what someone unfamiliar with the theme would reach for.
     else if (arg === '--bigtop' || arg === '--broker') opts.bigtop = argv[++i]
@@ -122,6 +123,7 @@ async function cmdHost({ opts, passthrough }) {
       C2C_TOKEN: token,
       C2C_BIGTOP_URL: opts.bigtop ?? '',
       C2C_BIGTOP_ROOM: opts.room ?? opts.session,
+      C2C_TUNNEL: opts.tunnel ? '1' : '',
     },
   })
   child.unref()
@@ -209,6 +211,11 @@ function printInvite(meta, opts) {
 
   console.log('  how your bozo gets in:')
 
+  if (meta.tunnel) {
+    console.log(`    tunnel    ${meta.tunnel}`)
+    console.log('              a public cloudflared URL: anyone with the link can reach it')
+  }
+
   if (meta.bigtop?.url) {
     console.log(`    bigtop    ${meta.bigtop.url}`)
     console.log('              works through NAT on both sides, nothing to forward')
@@ -243,8 +250,8 @@ async function cmdInvite({ opts }) {
 
 // Joins as a bozo over the ordinary bozo protocol, so an agent is gated exactly
 // like a person: the ringmaster does not know or care that this one is a program.
-async function cmdMcp({ opts }) {
-  const { BozoLink, McpServer } = await import('./mcp.js')
+async function cmdZavatta({ opts }) {
+  const { BozoLink, McpServer } = await import('./zavatta.js')
 
   let url = opts.url
   if (!url) {
@@ -256,7 +263,7 @@ async function cmdMcp({ opts }) {
     url = `ws://127.0.0.1:${meta.port}/?t=${meta.token}`
   }
 
-  const link = new BozoLink({ url, name: opts.name ?? 'claude' })
+  const link = new BozoLink({ url, name: opts.name ?? 'zavatta' })
   // stdout is the MCP transport, so anything chatty has to go to stderr.
   link.on('closed', () => {
     console.error('[c2c] the session ended')
@@ -269,7 +276,7 @@ async function cmdMcp({ opts }) {
     console.error(`[c2c] could not join the session: ${err.message}`)
     process.exit(1)
   }
-  console.error(`[c2c] hoinked in as ${opts.name ?? 'claude'}, mode is ${link.mode}`)
+  console.error(`[c2c] hoinked in as ${opts.name ?? 'zavatta'}, mode is ${link.mode}`)
 
   new McpServer(link).start()
 }
@@ -314,6 +321,7 @@ async function cmdRingmaster() {
     host: process.env.C2C_BIND,
     token: process.env.C2C_TOKEN,
     bigtop: bigtopUrl ? { url: bigtopUrl, room: process.env.C2C_BIGTOP_ROOM } : null,
+    tunnel: process.env.C2C_TUNNEL === '1',
   })
   await ringmaster.start()
   console.log(`[ringmaster] listening on ${ringmaster.url}`)
@@ -384,6 +392,9 @@ function printStatus(reply) {
   console.log(`session  ${reply.session}`)
   console.log(`mode     ${reply.mode}`)
   console.log(`url      ${reply.url}`)
+  if (reply.tunnel) {
+    console.log(`tunnel   ${reply.tunnel}`)
+  }
   if (reply.bigtop) {
     console.log(`bigtop   ${reply.bigtop.connected ? 'connected' : 'disconnected'}  ${reply.bigtop.url}`)
   }
@@ -412,19 +423,20 @@ function usage() {
   console.log(`c2c-conv - share one Claude Code session with a second person
 
 usage:
-  c2c host [-s NAME] [-p PORT] [--bind ADDR] [--cwd DIR] [--no-attach]
+  c2c host [-s NAME] [-p PORT] [--bind ADDR] [--cwd DIR] [--no-attach] [--tunnel]
            [--bigtop wss://HOST] [--room NAME] [--token SECRET] [-- <claude args>]
   c2c attach [-s NAME]
   c2c invite [-s NAME]
   c2c ctl <status|list|mode gallery|mode yolo|approve ID|deny ID|approve-all|deny-all>
   c2c stop [-s NAME]
   c2c bigtop [-p PORT] [--bind ADDR]
-  c2c mcp [-s NAME] [--url URL] [--name WHO]      join a session as an AI bozo
+  c2c zavatta [-s NAME] [--url URL] [--name WHO]  join a session as an AI bozo (MCP)
 
 transports:
   loopback + ssh   default, nothing to deploy
   --bind ADDR      serve a LAN or tailnet address directly
   --bigtop URL     dial out to a bigtop, works through NAT both ends
+  --tunnel         public URL via cloudflared, nothing to deploy or forward
 
 state lives in ${stateDir('<session>')}`)
 }
@@ -449,8 +461,10 @@ try {
     case 'invite':
       await cmdInvite({ opts })
       break
+    // mcp stays as an alias: it is the term anyone will actually search for.
+    case 'zavatta':
     case 'mcp':
-      await cmdMcp({ opts })
+      await cmdZavatta({ opts })
       break
     case 'bigtop':
     case 'broker':

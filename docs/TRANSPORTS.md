@@ -35,7 +35,31 @@ c2c host --bind 100.64.0.39      # a tailnet address
 prints a warning, because from that point the URL token is the only thing between
 a stranger on the network and your session.
 
-## Rung 3: the bigtop
+## Rung 3: a cloudflared tunnel
+
+```sh
+c2c host --tunnel
+```
+
+cloudflared dials out and hands back a public `trycloudflare.com` URL, so this
+reaches anyone with no deployment, no inbound rule and no NAT traversal. The
+ringmaster still binds loopback; the tunnel is the only thing exposed.
+
+The tunnel is a child of the ringmaster and is killed with it, because a public
+URL that outlives the session it was sharing is a hole rather than a
+convenience.
+
+The link is public, so the token is doing all the work. That is the same
+position as the bigtop rung, but the URL is handed out by Cloudflare rather
+than chosen by you.
+
+**Tested with a stub, not the real binary.** cloudflared was not installed on
+the machine this was built on, so the announcement parsing, the failure paths
+and the lifecycle are covered by a fake that prints the same banner. A real
+tunnel has never been established. Check the URL actually loads before trusting
+it with anything.
+
+## Rung 4: the bigtop
 
 For when neither side can reach the other: both dial *out* to a bigtop.
 

@@ -73,9 +73,16 @@ your network allows:
 
 ```sh
 c2c host                                   # loopback, bozo forwards a port
+c2c host --tunnel                          # public URL via cloudflared
 c2c host --bind 100.64.0.39                # serve a tailnet address directly
 c2c host --bigtop wss://bigtop.example.com --room standup
 ```
+
+`--tunnel` is the quickest way to share with someone right now: cloudflared
+connects out, so there is nothing to deploy and nothing to forward, and you get
+a `https://...trycloudflare.com` link to send. It needs `cloudflared` on PATH.
+The link is **public** - the token is the only thing protecting it - and the
+tunnel dies with the session rather than outliving it.
 
 The bigtop rung has both sides dial *out*, so it works when neither machine can
 reach the other. Run one anywhere with `c2c bigtop`, or

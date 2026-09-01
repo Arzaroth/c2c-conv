@@ -1,3 +1,5 @@
+// Zavatta: the MCP server. A human bozo is anonymous; the one that is a program
+// gets a proper clown's name, after Achille Zavatta.
 import { EventEmitter } from 'node:events'
 
 // Terminal output is for a terminal. An agent gets the screen as plain text.
@@ -20,7 +22,7 @@ export class BozoLink extends EventEmitter {
   history = []
   connected = false
 
-  constructor({ url, name = 'claude' }) {
+  constructor({ url, name = 'zavatta' }) {
     super()
     this.#url = url
     this.#name = name
@@ -228,7 +230,7 @@ export class McpServer {
         this.#reply(id, {
           protocolVersion: params?.protocolVersion ?? '2024-11-05',
           capabilities: { tools: {} },
-          serverInfo: { name: 'c2c-conv', version: '0.1.0' },
+          serverInfo: { name: 'zavatta', version: '0.1.0' },
         })
         return
       }

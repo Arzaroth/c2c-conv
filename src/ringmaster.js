@@ -5,6 +5,7 @@ import { randomBytes } from 'node:crypto'
 import * as tmux from './tmux.js'
 import { PaneStream } from './panestream.js'
 import { TranscriptStream } from './transcript.js'
+import { Tunnel } from './tunnel.js'
 import { Policy, GALLERY, YOLO } from './policy.js'
 import { LocalTransport } from './transport/local.js'
 import { BigtopTransport } from './transport/bigtop.js'
@@ -28,8 +29,12 @@ export class Ringmaster {
   #writes = Promise.resolve()
   #transcript = null
   #history = []
+  #tunnel = null
+  #tunnelUrl = null
+  #wantsTunnel = false
 
-  constructor({ session, port, host = '127.0.0.1', token, bigtop }) {
+  constructor({ session, port, host = '127.0.0.1', token, bigtop, tunnel = false }) {
+    this.#wantsTunnel = tunnel
     this.#session = session
     this.#token = token || randomBytes(16).toString('hex')
 
@@ -93,6 +98,24 @@ export class Ringmaster {
     this.#transcript.on('located', (info) => console.log(`[transcript] ${info.path}`))
     this.#transcript.start()
 
+    // cloudflared connects out, so the ringmaster stays on loopback and there is
+    // still nothing to forward. The tunnel is a child of this process so it dies
+    // with the session rather than outliving it as a public URL.
+    if (this.#wantsTunnel) {
+      this.#tunnel = new Tunnel({ port: this.local.port })
+      this.#tunnel.on('closed', () => {
+        this.#tunnelUrl = null
+        console.log('[tunnel] cloudflared exited')
+      })
+      try {
+        this.#tunnelUrl = await this.#tunnel.start()
+        console.log(`[tunnel] ${this.#tunnelUrl}`)
+      } catch (err) {
+        console.error(`[tunnel] ${err.message}`)
+        this.#tunnel = null
+      }
+    }
+
     this.#watchPaneState()
     await this.#writeStatusLine()
 
@@ -111,6 +134,7 @@ export class Ringmaster {
 
   async stop() {
     clearInterval(this.#stateTimer)
+    this.#tunnel?.stop()
     await this.#transcript?.stop()
     await tmux.stopPipe(this.#session)
     await this.#pane?.stop()
@@ -187,6 +211,7 @@ export class Ringmaster {
       token: this.#token,
       url: local.url,
       bigtop: this.bigtop ? { url: this.bigtop.bozoUrl } : null,
+      tunnel: this.#tunnelUrl ? `${this.#tunnelUrl}/?t=${this.#token}` : null,
     }
   }
 
@@ -436,6 +461,7 @@ export class Ringmaster {
           bozos: [...this.#bozos.values()].map((g) => ({ id: g.id, name: g.name, via: g.origin })),
           pending: this.#policy.list(),
           url: this.url,
+          tunnel: this.#tunnelUrl ? `${this.#tunnelUrl}/?t=${this.#token}` : null,
           bigtop: this.bigtop
             ? { url: this.bigtop.bozoUrl, connected: this.bigtop.connected, last: this.#bigtopStatus }
             : null,

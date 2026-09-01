@@ -145,6 +145,7 @@ additive and can run simultaneously.
 
 1. **loopback + ssh** - the default, nothing to deploy.
 2. **bind wider** - `--bind` for LAN or a tailnet address.
+2b. **cloudflared tunnel** - `--tunnel`, a public URL with nothing to deploy.
 3. **the bigtop** - `--bigtop`, both sides dial out, works through NAT on
    both ends.
 
@@ -292,6 +293,9 @@ does not recognise as a key name, so the literal-send test only bites when the
 payload is exactly a key name like `C-u`.
 
 ## An agent as a bozo
+
+Zavatta is the MCP server: a human bozo is anonymous, and the one that is a
+program gets a proper clown's name.
 
 `src/mcp.js` is an MCP server that joins a session over the ordinary bozo
 protocol. The ringmaster does not know or care that this bozo is a program, so
