@@ -106,11 +106,9 @@ let paneState = 'unknown'
 
 function refreshKeypad() {
   el.keypad.hidden = paneState !== 'dialog'
-  const usable = mode === 'yolo'
-  for (const button of el.keypad.querySelectorAll('button')) button.disabled = !usable
   const canPress = mode === 'yolo' || whiteface
   for (const button of el.keypad.querySelectorAll('button')) button.disabled = !canPress
-  el.keypad.querySelector('.keypad-label').textContent = usable
+  el.keypad.querySelector('.keypad-label').textContent = canPress
     ? '🤡 the session is asking'
     : '🤡 the session is asking - only the host can answer'
 }

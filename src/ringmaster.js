@@ -371,7 +371,11 @@ export class Ringmaster {
     }
 
     if (msg.type === 'key') {
-      const result = this.#policy.submitKey({ key: msg.key, bozo: bozo.name })
+      const result = this.#policy.submitKey({
+        key: msg.key,
+        bozo: bozo.name,
+        whiteface: this.#whiteface === bozo.id,
+      })
       if (result.action === 'send') this.#pressKey(result.key)
       else bozo.channel.sendJson({ type: 'key:refused', key: msg.key, reason: result.reason })
       return

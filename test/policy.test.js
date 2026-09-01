@@ -131,13 +131,16 @@ test('the queue cap does not apply in ring', () => {
   }
 })
 
-// Headless sessions start in yolo, because the approval keys need an attached
-// terminal and a detached gallery session is one nobody can ever release.
-test('a mode can be chosen at construction time', () => {
+// The whiteface is the host, and the host can always answer the pane.
+test('the whiteface can answer a dialog in gallery', () => {
   const policy = new Policy()
-  assert.equal(policy.mode, GALLERY)
-  assert.equal(policy.setMode(YOLO), YOLO)
-  assert.equal(policy.submit({ text: 'straight in', bozo: 'b' }).action, 'send')
+  assert.equal(policy.submitKey({ key: 'Down', bozo: 'host', whiteface: true }).action, 'send')
+  assert.equal(policy.submitKey({ key: 'Down', bozo: 'bozo' }).action, 'refused')
+})
+
+test('the whiteface still cannot press keys outside the allowlist', () => {
+  const policy = new Policy()
+  assert.equal(policy.submitKey({ key: 'C-c', bozo: 'host', whiteface: true }).action, 'rejected')
 })
 
 // The whiteface gate. These are the host's to do, and the check lives in the

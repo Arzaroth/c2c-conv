@@ -77,10 +77,11 @@ export class Policy {
 
   // Answering a dialog is a side effect by definition, and queueing individual
   // arrow presses for approval would be unusable, so keys are a yolo-only
-  // capability rather than a third thing on the ladder.
-  submitKey({ key, bozo }) {
+  // capability rather than a third thing on the ladder. The whiteface is the
+  // host, and the host can always answer the pane.
+  submitKey({ key, bozo, whiteface = false }) {
     if (!ALLOWED_KEYS.has(key)) return { action: 'rejected', reason: 'unknown key' }
-    if (this.#mode !== YOLO) return { action: 'refused', reason: 'gallery' }
+    if (this.#mode !== YOLO && !whiteface) return { action: 'refused', reason: 'gallery' }
     this.#emit({ type: 'key', key, bozo })
     return { action: 'send', key }
   }
