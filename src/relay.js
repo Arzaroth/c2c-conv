@@ -4,12 +4,14 @@ import { randomBytes } from 'node:crypto'
 
 import * as tmux from './tmux.js'
 import { PaneStream } from './panestream.js'
+import { TranscriptStream } from './transcript.js'
 import { Policy, SPECTATOR, YOLO } from './policy.js'
 import { LocalTransport } from './transport/local.js'
 import { BrokerTransport } from './transport/broker.js'
 import { controlSocket, ensureStateDir, metaFile, paneFile, statusFile } from './paths.js'
 
 const MAX_PANE_BYTES = Number(process.env.C2C_MAX_PANE_BYTES) || 8 * 1024 * 1024
+const MAX_HISTORY = 500
 
 export class Relay {
   #session
@@ -24,6 +26,8 @@ export class Relay {
   #paneSize = { cols: 0, rows: 0 }
   #stateTimer = null
   #writes = Promise.resolve()
+  #transcript = null
+  #history = []
 
   constructor({ session, port, host = '127.0.0.1', token, broker }) {
     this.#session = session
@@ -80,6 +84,15 @@ export class Relay {
       await transport.start()
     }
 
+    this.#transcript = new TranscriptStream(this.#session)
+    this.#transcript.on('entry', (entry) => {
+      this.#history.push(entry)
+      if (this.#history.length > MAX_HISTORY) this.#history.shift()
+      this.#broadcastJson({ type: 'transcript', entry })
+    })
+    this.#transcript.on('located', (info) => console.log(`[transcript] ${info.path}`))
+    this.#transcript.start()
+
     this.#watchPaneState()
     await this.#writeStatusLine()
 
@@ -89,6 +102,7 @@ export class Relay {
 
   async stop() {
     clearInterval(this.#stateTimer)
+    await this.#transcript?.stop()
     await tmux.stopPipe(this.#session)
     await this.#pane?.stop()
     for (const transport of this.#transports) await transport.stop()
@@ -183,6 +197,9 @@ export class Relay {
       data: await tmux.capturePane(this.#session),
       cursor: await tmux.cursor(this.#session),
     })
+    if (this.#history.length) {
+      channel.sendJson({ type: 'transcript:history', entries: this.#history })
+    }
     this.#writeStatusLine()
     this.#notifyHost(`c2c: a guest connected via ${channel.origin} (${this.#guests.size} connected)`)
   }

@@ -89,6 +89,15 @@ export async function cursor(name) {
   return { x, y }
 }
 
+export async function panePid(name) {
+  try {
+    const { stdout } = await tmux(['display-message', '-p', '-t', name, '#{pane_pid}'])
+    return Number(stdout.trim()) || null
+  } catch {
+    return null
+  }
+}
+
 export async function paneAlive(name) {
   try {
     const { stdout } = await tmux(['display-message', '-p', '-t', name, '#{pane_dead}'])

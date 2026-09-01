@@ -12,7 +12,88 @@ const el = {
   hint: document.getElementById('hint'),
   screen: document.getElementById('screen'),
   keypad: document.getElementById('keypad'),
+  history: document.getElementById('history'),
+  historyList: document.getElementById('history-list'),
+  historyToggle: document.getElementById('history-toggle'),
 }
+
+const history = []
+let historyOpen = false
+let unseen = 0
+
+function renderHistoryToggle() {
+  el.historyToggle.classList.toggle('on', historyOpen)
+  el.historyToggle.textContent = 'history'
+  if (!historyOpen && unseen) {
+    const badge = document.createElement('span')
+    badge.className = 'count'
+    badge.textContent = unseen > 99 ? '99+' : String(unseen)
+    el.historyToggle.appendChild(badge)
+  }
+}
+
+function turnElement(entry) {
+  const row = document.createElement('div')
+  row.className = `turn ${entry.role}`
+
+  const who = document.createElement('span')
+  who.className = 'who'
+  who.textContent = entry.role === 'user' ? '🤡 typed' : '● claude'
+  row.appendChild(who)
+
+  if (entry.text) {
+    const body = document.createElement('div')
+    body.className = 'body'
+    body.textContent = entry.text
+    row.appendChild(body)
+  }
+
+  if (entry.tools?.length) {
+    const tools = document.createElement('div')
+    tools.className = 'tools'
+    for (const name of entry.tools) {
+      const chip = document.createElement('span')
+      chip.className = 'tool'
+      chip.textContent = name
+      tools.appendChild(chip)
+    }
+    row.appendChild(tools)
+  }
+
+  return row
+}
+
+function appendTurn(entry) {
+  const atBottom = el.history.scrollTop + el.history.clientHeight >= el.history.scrollHeight - 40
+  el.historyList.appendChild(turnElement(entry))
+  if (historyOpen && atBottom) el.history.scrollTop = el.history.scrollHeight
+}
+
+function renderHistory() {
+  el.historyList.replaceChildren()
+  if (!history.length) {
+    const empty = document.createElement('div')
+    empty.className = 'history-empty'
+    empty.textContent = 'Nothing yet. The conversation shows up here as it happens.'
+    el.historyList.appendChild(empty)
+    return
+  }
+  for (const entry of history) el.historyList.appendChild(turnElement(entry))
+}
+
+el.historyToggle.addEventListener('click', () => {
+  historyOpen = !historyOpen
+  el.history.hidden = !historyOpen
+  el.screen.hidden = historyOpen
+  if (historyOpen) {
+    unseen = 0
+    renderHistory()
+    el.history.scrollTop = el.history.scrollHeight
+  } else {
+    rescale()
+  }
+  renderHistoryToggle()
+})
 
 let paneState = 'unknown'
 
@@ -56,24 +137,38 @@ term.resize(80, 24)
 // the chosen size, so the text stays crisp instead of being scaled bitmap. The
 // host's rows and columns are fixed, so whatever is left over after fitting is
 // aspect-ratio letterboxing and gets centred.
-let fitting = false
+let pendingFit = false
 
+// requestAnimationFrame does not fire in a background tab, so using it alone to
+// release the coalescing flag latches it on forever and every later fit is
+// swallowed. The timer is the fallback that still runs when hidden.
 function rescale() {
-  if (fitting) return
-  fitting = true
-  requestAnimationFrame(() => {
+  if (pendingFit) return
+  pendingFit = true
+
+  const run = () => {
+    if (!pendingFit) return
+    pendingFit = false
     try {
       fit()
-    } finally {
-      fitting = false
-    }
-  })
+    } catch {}
+  }
+
+  requestAnimationFrame(run)
+  setTimeout(run, 60)
 }
 
 function fit() {
   const view = el.screen.querySelector('.xterm')
   const grid = el.screen.querySelector('.xterm-screen')
   if (!view || !grid) return
+
+  // Bail before touching the transform. Clearing it first and then giving up on
+  // an unmeasurable container leaves the terminal permanently unscaled, which
+  // is what happens every time a redraw arrives while history is open.
+  const availableWidth = el.screen.clientWidth - 16
+  const availableHeight = el.screen.clientHeight - 12
+  if (el.screen.hidden || availableWidth <= 0 || availableHeight <= 0) return
 
   view.style.transform = 'none'
   // Pin the element to the character grid: left to itself it stretches to the
@@ -84,9 +179,7 @@ function fit() {
 
   const width = grid.offsetWidth
   const height = grid.offsetHeight
-  const availableWidth = el.screen.clientWidth - 16
-  const availableHeight = el.screen.clientHeight - 12
-  if (!width || !height || availableWidth <= 0 || availableHeight <= 0) return
+  if (!width || !height) return
 
   // The host's rows and columns are fixed, so one axis fills and the other
   // letterboxes. Scaling about the centre lets the flex parent centre the
@@ -227,6 +320,19 @@ function handle(msg) {
     case 'notice':
       term.write(`\r\n\x1b[38;5;246m[c2c] ${msg.text}\x1b[39m\r\n`)
       break
+    case 'transcript:history':
+      history.length = 0
+      history.push(...msg.entries)
+      if (historyOpen) renderHistory()
+      else unseen = history.length
+      renderHistoryToggle()
+      break
+    case 'transcript':
+      history.push(msg.entry)
+      if (historyOpen) appendTurn(msg.entry)
+      else unseen++
+      renderHistoryToggle()
+      break
   }
 }
 
@@ -253,6 +359,7 @@ el.who.addEventListener('change', () => {
   announce()
 })
 
+renderHistoryToggle()
 setMode('spectator')
 setLink(false)
 connect()

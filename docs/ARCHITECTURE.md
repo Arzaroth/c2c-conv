@@ -92,6 +92,30 @@ and message-granular. The pane bytes are the actual thing the host sees, at
 token granularity, including permission prompts and dialogs. The pane is the
 source of truth; the transcript is optional enrichment.
 
+## The transcript stream
+
+`src/transcript.js` tails the session's JSONL and gives guests a readable
+conversation alongside the mirror. It solves the one thing the mirror cannot: a
+guest joining late sees only the current screen, while the transcript has every
+turn from the start.
+
+**Finding the right file.** The project directory holds a transcript per
+session, so picking the newest would grab any other session sharing the cwd.
+Instead the pane's pid leads to Claude Code's own live-session descriptor at
+`~/.claude/sessions/<pid>.json`, which carries the `sessionId` and `cwd` that
+name the file. tmux may run the pane command through a shell, so the pane pid's
+children are checked too.
+
+**It is never load-bearing.** Locating retries rather than failing, every parse
+is wrapped, and if any of it breaks the mirror is unaffected and guests simply
+have no history panel. That is the deal with an undocumented format.
+
+**What is emitted.** User turns and assistant turns, with tool calls reduced to
+their names. Tool *results* are dropped: they carry whole files and command
+output, and a user-role record holding a `tool_result` is not something a person
+said. Guests see all of it in the mirror anyway, so this is about readability,
+not concealment.
+
 ## Transport ladder
 
 A transport owes the relay two operations: *stream these bytes to the guest* and
@@ -189,7 +213,6 @@ are pure functions with their own tests:
 
 ## Open work
 
-- Scrollback replay for guests joining mid-session (currently seeded with
-  `capture-pane`, so only the visible screen).
-- Transcript enrichment stream is designed but not yet wired.
 - Pane geometry is fixed at 200x50 until a client attaches; no flag for it yet.
+- The mirror itself still has no scrollback; history lives in the transcript
+  panel instead, which covers conversation but not raw terminal output.

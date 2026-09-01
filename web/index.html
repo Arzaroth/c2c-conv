@@ -141,6 +141,9 @@
     align-items: center;
     justify-content: center;
   }
+  /* An id selector's display beats the [hidden] attribute, so hiding the
+     terminal needs to say so explicitly. */
+  #screen[hidden] { display: none; }
   #screen .xterm-viewport {
     overflow: hidden !important;
     scrollbar-width: none;
@@ -186,6 +189,84 @@
     font-variant-numeric: tabular-nums;
   }
   .ticket .what { color: var(--muted); }
+
+  .tab {
+    cursor: pointer;
+    font-family: inherit;
+    color: var(--muted);
+  }
+  .tab:hover { border-color: var(--wig-6); color: var(--text); }
+  .tab.on { color: var(--wig-6); border-color: var(--wig-6); }
+  .tab .count {
+    margin-left: 5px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: var(--wig-6);
+    color: #150a26;
+    font-size: 11px;
+  }
+
+  #history {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    background: #0b0910;
+    padding: 18px 0 26px;
+  }
+  #history[hidden] { display: none; }
+  .history-inner {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 0 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .turn { display: flex; flex-direction: column; gap: 6px; }
+  .turn .who {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    align-self: flex-start;
+    width: auto;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    border: 1px solid var(--line);
+    background: var(--panel-2);
+    text-align: left;
+  }
+  .turn.user .who { color: var(--face); }
+  .turn.assistant .who { color: var(--wig-5); }
+  .turn .body {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    line-height: 1.55;
+    color: var(--text);
+  }
+  .turn.user .body {
+    padding: 10px 14px;
+    border-radius: 10px;
+    border-left: 3px solid var(--face);
+    background: var(--panel);
+  }
+  .turn .tools { display: flex; flex-wrap: wrap; gap: 6px; }
+  .turn .tool {
+    padding: 2px 9px;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--muted);
+    font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .history-empty {
+    color: var(--muted);
+    text-align: center;
+    padding: 40px 0;
+  }
 
   #keypad {
     display: flex;
@@ -275,10 +356,15 @@
     <div class="badge" id="mode"><span class="dot"></span><span id="mode-text">connecting</span></div>
     <div class="badge link down" id="link">offline</div>
     <div class="spacer"></div>
+    <button type="button" id="history-toggle" class="badge tab">history</button>
     <input type="text" id="who" class="who" maxlength="40" placeholder="your name" aria-label="Your name">
   </header>
 
   <div id="screen"></div>
+
+  <div id="history" hidden>
+    <div class="history-inner" id="history-list"></div>
+  </div>
 
   <footer class="dots">
     <div id="keypad" hidden>

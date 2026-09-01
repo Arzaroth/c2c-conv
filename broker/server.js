@@ -87,7 +87,10 @@ export class Broker {
 
     try {
       const body = await readFile(join(WEB_ROOT, file))
-      res.writeHead(200, { 'content-type': MIME[extname(file)] || 'application/octet-stream' })
+      res.writeHead(200, {
+        'content-type': MIME[extname(file)] || 'application/octet-stream',
+        'cache-control': 'no-cache, no-store, must-revalidate',
+      })
       res.end(body)
     } catch {
       res.writeHead(404, { 'content-type': 'text/plain' })

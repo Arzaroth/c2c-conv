@@ -113,6 +113,17 @@ safe. Elevate for people you would hand your actual keyboard to.
 
 Runs on its own tmux server (`-L c2c`), so it will not touch your existing tmux.
 
+## History
+
+The mirror shows the current screen, so a guest who joins late has no idea what
+came before. The **history** tab fills that in: the conversation so far, from the
+first turn, as readable turns rather than replayed ANSI - what was asked, what
+Claude said, and which tools it reached for.
+
+It is built from Claude Code's own session transcript, which is an undocumented
+file format, so it is treated as strictly optional. If it cannot be read the
+mirror is unaffected and the tab simply stays empty.
+
 ## If a message gets held
 
 Guest messages are held rather than injected when the session is not ready for
@@ -128,5 +139,4 @@ Clear or send your draft, or answer the dialog, and the guest can resend.
 ## Status
 
 v0. Works end to end. Rough edges are listed in
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#open-work) - the notable one is that
-guests joining mid-session get the visible screen rather than full scrollback.
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#open-work).
