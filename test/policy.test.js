@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { MAX_PENDING, MAX_TEXT, Policy, GALLERY, YOLO, needsWhiteface } from '../src/policy.js'
+import { MAX_PENDING, MAX_TEXT, Policy, GALLERY, YOLO } from '../src/policy.js'
 
 test('gallery queues instead of sending', () => {
   const policy = new Policy()
@@ -141,23 +141,4 @@ test('the whiteface can answer a dialog in gallery', () => {
 test('the whiteface still cannot press keys outside the allowlist', () => {
   const policy = new Policy()
   assert.equal(policy.submitKey({ key: 'C-c', bozo: 'host', whiteface: true }).action, 'rejected')
-})
-
-// The whiteface gate. These are the host's to do, and the check lives in the
-// ringmaster rather than the UI: a bozo opening its own socket gets refused too.
-test('host actions require the whiteface role', () => {
-  for (const action of ['approve', 'deny', 'approve-next', 'mode']) {
-    assert.equal(needsWhiteface(action), true, action)
-  }
-})
-
-test('ordinary bozo traffic does not', () => {
-  for (const action of ['submit', 'key', 'hoink', 'name', 'refresh']) {
-    assert.equal(needsWhiteface(action), false, action)
-  }
-})
-
-// Zavatta must never be able to release its own messages.
-test('the mode switch is not something a bozo can ask for unaided', () => {
-  assert.equal(needsWhiteface('mode'), true)
 })

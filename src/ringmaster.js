@@ -6,8 +6,8 @@ import * as tmux from './tmux.js'
 import { PaneStream } from './panestream.js'
 import { TranscriptStream } from './transcript.js'
 import { Tunnel } from './tunnel.js'
-import { Policy, GALLERY, YOLO, needsWhiteface } from './policy.js'
-import { Whiteface } from './whiteface.js'
+import { Policy, GALLERY, YOLO } from './policy.js'
+import { Whiteface, WHITEFACE_COMMANDS } from './whiteface.js'
 import { LocalTransport } from './transport/local.js'
 import { BigtopTransport } from './transport/bigtop.js'
 import { controlSocket, ensureStateDir, metaFile, paneFile, statusFile } from './paths.js'
@@ -258,24 +258,6 @@ export class Ringmaster {
     // means the host is told who arrived rather than that someone did.
   }
 
-  #runWhitefaceAction(msg) {
-    if (msg.type === 'mode') {
-      const next = msg.mode === 'toggle'
-        ? (this.#policy.mode === YOLO ? GALLERY : YOLO)
-        : msg.mode
-      try {
-        this.#policy.setMode(next)
-      } catch {}
-      return
-    }
-    if (msg.type === 'approve') this.#policy.approve(Number(msg.id))
-    if (msg.type === 'deny') this.#policy.deny(Number(msg.id))
-    if (msg.type === 'approve-next') {
-      const [oldest] = this.#policy.list()
-      if (oldest) this.#policy.approve(oldest.id)
-    }
-  }
-
   // The greeting is also where the whiteface is claimed, so the reply carries
   // the role and, for the holder, the queue as it stands. A whiteface that
   // reconnects after messages piled up sees them straight away.
@@ -323,13 +305,14 @@ export class Ringmaster {
       return
     }
 
-    // Everything below is host control, and only the whiteface may ask.
-    if (needsWhiteface(msg.type)) {
-      if (!this.#whiteface.holds(bozo)) {
-        bozo.channel.sendJson({ type: 'whiteface:refused', action: msg.type })
-        return
-      }
-      this.#runWhitefaceAction(msg)
+    // Host control, run through the same dispatcher as c2c ctl. The gate is
+    // here rather than in the UI: a bozo opening its own socket and asking to
+    // approve is refused exactly the same.
+    if (WHITEFACE_COMMANDS.has(msg.type)) {
+      const reply = this.#whiteface.holds(bozo)
+        ? this.#handleControl({ ...msg, cmd: msg.type })
+        : { ok: false, error: 'not the whiteface' }
+      bozo.channel.sendJson({ type: 'control', cmd: msg.type, ...reply })
       return
     }
 
@@ -512,7 +495,7 @@ export class Ringmaster {
           try {
             reply = this.#handleControl(JSON.parse(line))
           } catch (err) {
-            reply = { ok: false, error: err.message }
+            reply = { ok: false, error: 'not json' }
           }
           socket.write(JSON.stringify(reply) + '\n')
         }
@@ -526,7 +509,16 @@ export class Ringmaster {
     })
   }
 
+  // Never throws: both the control socket and the whiteface send the reply on.
   #handleControl(msg) {
+    try {
+      return this.#dispatchControl(msg)
+    } catch (err) {
+      return { ok: false, error: err.message }
+    }
+  }
+
+  #dispatchControl(msg) {
     switch (msg.cmd) {
       case 'status':
         return {

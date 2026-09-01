@@ -306,8 +306,9 @@ whiteface fixes that without moving host control onto the share link.
 - The role is claimed in the HOINK greeting, and the reply carries it along
   with the queue as it stands, so a whiteface that reconnects sees what piled
   up while it was away.
-- The gate is `needsWhiteface()` in the ringmaster, not a hidden button. A bozo
-  that opens its own socket and asks to approve is refused exactly the same.
+- Its commands are the `c2c ctl` ones, run through the same dispatcher, and the
+  gate is in the ringmaster rather than the UI. A bozo that opens its own socket
+  and asks to approve is refused exactly the same.
 - The pending queue is sent to the whiteface alone. Another bozo's unreleased
   message is not the rest of the gallery's business, least of all one that is
   about to be dropped.

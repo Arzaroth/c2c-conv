@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { Whiteface } from '../src/whiteface.js'
+import { Whiteface, WHITEFACE_COMMANDS } from '../src/whiteface.js'
 
 const alice = { name: 'alice' }
 const bob = { name: 'bob' }
@@ -61,4 +61,14 @@ test('nobody holds a fresh role', () => {
   assert.equal(role.holds(alice), false)
   assert.equal(role.holds(null), false)
   assert.equal(role.release(alice), false)
+})
+
+// status carries the token and stop ends the session: those stay with c2c ctl.
+test('the whiteface gets the release, drop and mode commands but not status or stop', () => {
+  for (const cmd of ['approve', 'deny', 'approve-next', 'deny-next', 'approve-all', 'deny-all', 'mode', 'list']) {
+    assert.equal(WHITEFACE_COMMANDS.has(cmd), true, cmd)
+  }
+  for (const cmd of ['status', 'stop', 'submit', 'key', 'hoink', 'name', 'refresh']) {
+    assert.equal(WHITEFACE_COMMANDS.has(cmd), false, cmd)
+  }
 })

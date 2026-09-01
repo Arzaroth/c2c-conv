@@ -10,14 +10,6 @@ export const MAX_PENDING = 50
 // and every bozo costs a copy of the pane stream.
 export const MAX_BOZOS = 30
 
-// The whiteface is the clown who runs the ring. These are the host's to do, and
-// a bozo may only ask for them while holding that role.
-export const WHITEFACE_ONLY = new Set(['approve', 'deny', 'approve-next', 'mode'])
-
-export function needsWhiteface(type) {
-  return WHITEFACE_ONLY.has(type)
-}
-
 export const ALLOWED_KEYS = new Set([
   'Up', 'Down', 'Left', 'Right', 'Enter', 'Escape', 'Tab', 'BSpace',
   '1', '2', '3', '4', '5', '6', '7', '8', '9',

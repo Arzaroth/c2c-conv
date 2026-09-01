@@ -348,7 +348,10 @@ function handle(msg) {
       renderPending()
       break
     case 'whiteface:refused':
-      el.hint.textContent = `Not the whiteface: ${msg.reason ?? 'that is the host\'s to do'}.`
+      el.hint.textContent = `Not the whiteface: ${msg.reason}.`
+      break
+    case 'control':
+      if (!msg.ok) el.hint.textContent = `Refused: ${msg.error}.`
       break
     case 'policy:mode':
       setMode(msg.mode)
