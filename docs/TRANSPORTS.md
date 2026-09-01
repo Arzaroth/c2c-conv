@@ -53,6 +53,20 @@ The link is public, so the token is doing all the work. That is the same
 position as the bigtop rung, but the URL is handed out by Cloudflare rather
 than chosen by you.
 
+### Getting cloudflared
+
+It needs the `cloudflared` binary. There is an npm package of the same name with
+a pleasant API, but it is a wrapper: its installer downloads the same Go binary
+from GitHub releases and chmods it 755, with no checksum and no signature
+check - Cloudflare ships no checksum file to verify against either. Cloudflare
+Tunnel speaks a proprietary QUIC protocol to their edge, so there is no pure-JS
+implementation that would avoid the binary.
+
+c2c therefore takes no dependency on it, and a signed package from your
+distribution is the better source. But if you already have the npm one, c2c uses
+it: binary resolution checks `$C2C_CLOUDFLARED`, then `node_modules/.bin/`, then
+`~/.cloudflared/bin/`, then PATH. No reason to make you install it twice.
+
 **Tested with a stub, not the real binary.** cloudflared was not installed on
 the machine this was built on, so the announcement parsing, the failure paths
 and the lifecycle are covered by a fake that prints the same banner. A real

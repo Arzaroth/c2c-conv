@@ -1,10 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { writeFileSync, chmodSync, mkdtempSync } from 'node:fs'
+import { writeFileSync, chmodSync, mkdtempSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { Tunnel, parseTunnelUrl } from '../src/tunnel.js'
+import { Tunnel, parseTunnelUrl, resolveCloudflared } from '../src/tunnel.js'
 
 test('the quick tunnel URL is read out of the banner', () => {
   const line = '2026-09-01T12:00:00Z INF |  https://polite-clown-shoes-honk.trycloudflare.com  |'
@@ -31,7 +31,7 @@ test('a named tunnel hostname is accepted from the announcement', () => {
 
 test('a missing binary is reported as such', async () => {
   const tunnel = new Tunnel({ port: 1234, bin: '/nonexistent/cloudflared' })
-  await assert.rejects(() => tunnel.start(2000), /cloudflared is not on PATH/)
+  await assert.rejects(() => tunnel.start(2000), /cloudflared not found/)
 })
 
 // cloudflared is not installed here, so the lifecycle is exercised against a
@@ -65,4 +65,33 @@ test('a stub that exits without announcing is reported', async () => {
 
   const tunnel = new Tunnel({ port: 7331, bin })
   await assert.rejects(() => tunnel.start(8000), /exited with code 1/)
+})
+
+// The npm cloudflared package is not a dependency, but if someone has installed
+// it there is no reason to make them install a second copy of the same binary.
+test('a locally installed npm cloudflared is used when present', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'c2c-npm-'))
+  const binDir = join(dir, 'node_modules', '.bin')
+  mkdirSync(binDir, { recursive: true })
+  const bin = join(binDir, 'cloudflared')
+  writeFileSync(bin, '#!/bin/sh\nexit 0\n')
+  chmodSync(bin, 0o755)
+
+  assert.equal(resolveCloudflared(dir), bin)
+})
+
+test('PATH wins when there is no local copy', () => {
+  const empty = mkdtempSync(join(tmpdir(), 'c2c-empty-'))
+  assert.equal(resolveCloudflared(empty), 'cloudflared')
+})
+
+test('an explicit override beats everything', () => {
+  const previous = process.env.C2C_CLOUDFLARED
+  process.env.C2C_CLOUDFLARED = '/opt/custom/cloudflared'
+  try {
+    assert.equal(resolveCloudflared('/tmp'), '/opt/custom/cloudflared')
+  } finally {
+    if (previous === undefined) delete process.env.C2C_CLOUDFLARED
+    else process.env.C2C_CLOUDFLARED = previous
+  }
 })

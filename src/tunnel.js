@@ -1,5 +1,8 @@
 import { EventEmitter } from 'node:events'
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 
 // cloudflared announces a quick tunnel in a banner on stderr:
 //
@@ -20,6 +23,24 @@ export function parseTunnelUrl(line) {
   return line.match(ANY_HTTPS)?.[0] ?? null
 }
 
+// The npm `cloudflared` package is a wrapper: its installer downloads the same
+// Go binary from GitHub releases and chmods it 755, with no checksum and no
+// signature. So c2c does not depend on it - but if you have installed it, its
+// binary is perfectly good and there is no reason to make you install a second
+// copy. Anything on PATH wins, since that came from a signed package.
+export function resolveCloudflared(cwd = process.cwd()) {
+  if (process.env.C2C_CLOUDFLARED) return process.env.C2C_CLOUDFLARED
+
+  const candidates = [
+    join(cwd, 'node_modules', '.bin', 'cloudflared'),
+    join(homedir(), '.cloudflared', 'bin', 'cloudflared'),
+  ]
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate
+  }
+  return 'cloudflared'
+}
+
 export class Tunnel extends EventEmitter {
   #port
   #bin
@@ -28,10 +49,10 @@ export class Tunnel extends EventEmitter {
 
   url = null
 
-  constructor({ port, bin = process.env.C2C_CLOUDFLARED || 'cloudflared' }) {
+  constructor({ port, bin }) {
     super()
     this.#port = port
-    this.#bin = bin
+    this.#bin = bin ?? resolveCloudflared()
   }
 
   start(timeoutMs = 30000) {
@@ -83,9 +104,10 @@ export class Tunnel extends EventEmitter {
         reject(
           err.code === 'ENOENT'
             ? new Error(
-                'cloudflared is not on PATH. Install it with your package manager ' +
-                '(pacman -S cloudflared, brew install cloudflared, or the .deb/.rpm ' +
-                'from github.com/cloudflare/cloudflared/releases), then retry.'
+                'cloudflared not found. Install it with your package manager ' +
+                '(pacman -S cloudflared, brew install cloudflared), or run ' +
+                '"npm i cloudflared" here and c2c will use that copy. Note the npm ' +
+                'one downloads the binary unverified; a signed package is safer.'
               )
             : err
         )

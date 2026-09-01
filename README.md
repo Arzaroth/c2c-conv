@@ -80,7 +80,8 @@ c2c host --bigtop wss://bigtop.example.com --room standup
 
 `--tunnel` is the quickest way to share with someone right now: cloudflared
 connects out, so there is nothing to deploy and nothing to forward, and you get
-a `https://...trycloudflare.com` link to send. It needs `cloudflared` on PATH.
+a `https://...trycloudflare.com` link to send. It needs the `cloudflared` binary - from your package manager, or `npm i
+cloudflared` which c2c will pick up out of `node_modules/.bin`.
 The link is **public** - the token is the only thing protecting it - and the
 tunnel dies with the session rather than outliving it.
 
