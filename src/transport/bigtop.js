@@ -5,9 +5,9 @@ const BACKOFF_MAX = 15000
 
 // One outbound socket carries every guest in the room, so guest-addressed
 // traffic is enveloped and broadcasts are sent once rather than per guest.
-class BrokerGuest extends EventEmitter {
+class BigtopGuest extends EventEmitter {
   closed = false
-  origin = 'broker'
+  origin = 'bigtop'
 
   constructor(id, uplink) {
     super()
@@ -31,8 +31,8 @@ class BrokerGuest extends EventEmitter {
   }
 }
 
-export class BrokerTransport extends EventEmitter {
-  name = 'broker'
+export class BigtopTransport extends EventEmitter {
+  name = 'bigtop'
 
   #url
   #room
@@ -145,7 +145,7 @@ export class BrokerTransport extends EventEmitter {
 
   #dispatch(msg) {
     if (msg.event === 'join') {
-      const guest = new BrokerGuest(msg.from, this)
+      const guest = new BigtopGuest(msg.from, this)
       this.#guests.set(msg.from, guest)
       this.emit('guest', guest)
       return
@@ -179,8 +179,8 @@ export class BrokerTransport extends EventEmitter {
       this.emit('status', {
         connected: false,
         hint: response.ok
-          ? 'broker is reachable but refused the uplink - check the room name and token'
-          : `broker answered ${response.status} on /healthz`,
+          ? 'bigtop is reachable but refused the uplink - check the room name and token'
+          : `bigtop answered ${response.status} on /healthz`,
       })
     } catch (err) {
       // fetch reports "fetch failed"; the actual reason (ECONNREFUSED, a TLS
@@ -188,7 +188,7 @@ export class BrokerTransport extends EventEmitter {
       const cause = err.cause?.code ?? err.cause?.message
       this.emit('status', {
         connected: false,
-        hint: `cannot reach broker: ${cause ?? err.message}`,
+        hint: `cannot reach bigtop: ${cause ?? err.message}`,
       })
     }
   }

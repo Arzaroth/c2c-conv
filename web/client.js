@@ -99,7 +99,7 @@ let paneState = 'unknown'
 
 function refreshKeypad() {
   el.keypad.hidden = paneState !== 'dialog'
-  const usable = mode === 'yolo'
+  const usable = mode === 'ring'
   for (const button of el.keypad.querySelectorAll('button')) button.disabled = !usable
   el.keypad.querySelector('.keypad-label').textContent = usable
     ? '🤡 the session is asking'
@@ -192,7 +192,7 @@ function fit() {
 addEventListener('resize', rescale)
 
 const pending = new Map()
-let mode = 'spectator'
+let mode = 'gallery'
 let socket = null
 let retry = 500
 let ended = false
@@ -200,8 +200,8 @@ let ended = false
 function setMode(next) {
   mode = next
   el.mode.className = `badge ${next}`
-  el.modeText.textContent = next === 'yolo' ? 'YOLO' : 'SPECTATOR'
-  el.hint.innerHTML = next === 'yolo'
+  el.modeText.textContent = next === 'ring' ? 'RING' : 'GALLERY'
+  el.hint.innerHTML = next === 'ring'
     ? 'Straight through. What you send lands as if the host typed it.'
     : 'The host has to <b>release</b> anything you send.'
   refreshKeypad()
@@ -293,7 +293,7 @@ function handle(msg) {
         : 'Not sent: that message is too long.'
       break
     case 'key:refused':
-      el.hint.innerHTML = 'Only the host can answer that. Ask them for <b>yolo</b>.'
+      el.hint.innerHTML = 'Only the host can answer that. Ask them for <b>ring</b>.'
       break
     case 'screen':
       // capture-pane separates rows with a bare LF, which on its own moves down
@@ -375,6 +375,6 @@ el.who.addEventListener('change', () => {
 })
 
 renderHistoryToggle()
-setMode('spectator')
+setMode('gallery')
 setLink(false)
 connect()

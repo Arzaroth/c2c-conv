@@ -43,7 +43,7 @@ export async function newSession({ name, cwd, command, cols = 200, rows = 50 }) 
   ])
 }
 
-// The status line reads a file the relay keeps up to date rather than shelling
+// The status line reads a file the ringmaster keeps up to date rather than shelling
 // out to the CLI every couple of seconds.
 export async function configureHost(name, { node, cli, status }) {
   const quote = (value) => `'${String(value).replace(/'/g, `'\\''`)}'`

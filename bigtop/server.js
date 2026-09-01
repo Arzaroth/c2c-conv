@@ -20,7 +20,7 @@ const MIME = {
 const MAX_GUESTS = 16
 const HEARTBEAT_MS = 15000
 
-// A broker is meant to sit on a public host, where anything unbounded is
+// A bigtop is meant to sit on a public host, where anything unbounded is
 // somebody else's memory to grow. Claiming a room costs nothing, so the number
 // of them has to be capped.
 const MAX_ROOMS = 64
@@ -33,7 +33,7 @@ function validRoom(room) {
   return typeof room === 'string' && room.length <= MAX_ROOM_NAME && ROOM_NAME.test(room)
 }
 
-// A room is only as private as its token, and the broker is the one place that
+// A room is only as private as its token, and the bigtop is the one place that
 // can insist the host picked a real one.
 function validToken(token) {
   return typeof token === 'string' && token.length >= MIN_TOKEN && token.length <= 256
@@ -59,7 +59,7 @@ function heartbeat(ws, intervalMs = HEARTBEAT_MS) {
   return timer
 }
 
-export class Broker {
+export class Bigtop {
   #rooms = new Map()
   #server = null
 
@@ -254,12 +254,12 @@ if (isMain) {
   const port = Number(get('--port', process.env.PORT || 8080))
   const host = get('--bind', process.env.BIND || '0.0.0.0')
 
-  const broker = new Broker()
-  const address = await broker.listen(port, host)
-  console.log(`c2c broker listening on ${address.address}:${address.port}`)
+  const bigtop = new Bigtop()
+  const address = await bigtop.listen(port, host)
+  console.log(`c2c bigtop listening on ${address.address}:${address.port}`)
 
   const shutdown = () => {
-    broker.close()
+    bigtop.close()
     process.exit(0)
   }
   process.on('SIGINT', shutdown)

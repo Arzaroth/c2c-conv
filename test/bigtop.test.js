@@ -3,18 +3,18 @@ import assert from 'node:assert/strict'
 import { connect as netConnect } from 'node:net'
 import { randomBytes } from 'node:crypto'
 
-import { Broker, resolvePublic } from '../broker/server.js'
+import { Bigtop, resolvePublic } from '../bigtop/server.js'
 
-let broker
+let bigtop
 let base
 
 before(async () => {
-  broker = new Broker()
-  const address = await broker.listen(0, '127.0.0.1')
+  bigtop = new Bigtop()
+  const address = await bigtop.listen(0, '127.0.0.1')
   base = `ws://127.0.0.1:${address.port}`
 })
 
-after(() => broker.close())
+after(() => bigtop.close())
 
 function open(url, { binary = false } = {}) {
   return new Promise((resolve, reject) => {
@@ -75,10 +75,10 @@ test('guest messages arrive enveloped, host replies arrive verbatim', async () =
   const guestId = join.from
 
   guest.send({ type: 'submit', text: 'hello' })
-  const relayed = await host.next()
-  assert.equal(relayed.event, 'message')
-  assert.equal(relayed.from, guestId)
-  assert.deepEqual(relayed.payload, { type: 'submit', text: 'hello' })
+  const forwarded = await host.next()
+  assert.equal(forwarded.event, 'message')
+  assert.equal(forwarded.from, guestId)
+  assert.deepEqual(forwarded.payload, { type: 'submit', text: 'hello' })
 
   host.send({ to: guestId, payload: { type: 'pending', id: 1 } })
   assert.deepEqual(await guest.next(), { type: 'pending', id: 1 })
@@ -115,9 +115,9 @@ test('a broadcast reaches every guest, a targeted message only one', async () =>
   const first = (await host.next()).from
   await host.next()
 
-  host.send({ to: '*', payload: { type: 'policy:mode', mode: 'yolo' } })
-  assert.deepEqual(await one.next(), { type: 'policy:mode', mode: 'yolo' })
-  assert.deepEqual(await two.next(), { type: 'policy:mode', mode: 'yolo' })
+  host.send({ to: '*', payload: { type: 'policy:mode', mode: 'ring' } })
+  assert.deepEqual(await one.next(), { type: 'policy:mode', mode: 'ring' })
+  assert.deepEqual(await two.next(), { type: 'policy:mode', mode: 'ring' })
 
   host.send({ to: first, payload: { type: 'named', name: 'bozo' } })
   assert.deepEqual(await one.next(), { type: 'named', name: 'bozo' })
@@ -160,7 +160,7 @@ function silentPeer(port, path) {
 }
 
 test('a room is released when its host stops answering heartbeats', async () => {
-  const quick = new Broker({ heartbeatMs: 60 })
+  const quick = new Bigtop({ heartbeatMs: 60 })
   const address = await quick.listen(0, '127.0.0.1')
 
   const socket = await silentPeer(address.port, '/uplink?room=theta&t=secret-token')
@@ -174,7 +174,7 @@ test('a room is released when its host stops answering heartbeats', async () => 
 })
 
 test('a new host can claim a room once the stale one is reaped', async () => {
-  const quick = new Broker({ heartbeatMs: 60 })
+  const quick = new Bigtop({ heartbeatMs: 60 })
   const address = await quick.listen(0, '127.0.0.1')
   const url = `ws://127.0.0.1:${address.port}`
 
@@ -227,14 +227,14 @@ test('an over-long room name is refused', async () => {
   await assert.rejects(() => open(`${base}/uplink?room=${'r'.repeat(65)}&t=secret-token`))
 })
 
-// The room is only as private as its token, and the broker is the one place
+// The room is only as private as its token, and the bigtop is the one place
 // that can insist the host picked a real one.
 test('a short token is refused outright', async () => {
   await assert.rejects(() => open(`${base}/uplink?room=shorty&t=abc`))
 })
 
 test('claiming rooms is capped', async () => {
-  const capped = new Broker()
+  const capped = new Bigtop()
   const address = await capped.listen(0, '127.0.0.1')
   const url = `ws://127.0.0.1:${address.port}`
 

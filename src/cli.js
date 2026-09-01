@@ -9,10 +9,14 @@ import { dirname, join, resolve } from 'node:path'
 import { randomBytes } from 'node:crypto'
 
 import * as tmux from './tmux.js'
-import { Relay } from './relay.js'
+import { Ringmaster } from './ringmaster.js'
 import { controlSocket, ensureStateDir, metaFile, stateDir, statusFile } from './paths.js'
 
 const SELF = fileURLToPath(import.meta.url)
+
+// The old mode names stay valid. "yolo" in particular said "this is dangerous"
+// out loud, and anyone who learned it should not be told it is now invalid.
+const MODE_ALIASES = { spectator: 'gallery', yolo: 'ring' }
 
 const DEFAULTS = { session: 'c2c', port: 7331, host: '127.0.0.1' }
 
@@ -32,7 +36,9 @@ function parseArgs(argv) {
     else if (arg === '--bind') opts.host = argv[++i]
     else if (arg === '--cwd') opts.cwd = resolve(argv[++i])
     else if (arg === '--no-attach') opts.attach = false
-    else if (arg === '--broker') opts.broker = argv[++i]
+    // --broker kept as an alias: it was the flag before the bigtop rename, and
+    // it is also what someone unfamiliar with the theme would reach for.
+    else if (arg === '--bigtop' || arg === '--broker') opts.bigtop = argv[++i]
     else if (arg === '--room') opts.room = argv[++i]
     else if (arg === '--token') opts.token = argv[++i]
     else rest.push(arg)
@@ -52,7 +58,7 @@ function control(session, message) {
   return new Promise((resolveReply, reject) => {
     const socket = connect(controlSocket(session))
     let buffer = ''
-    socket.on('error', () => reject(new Error(`no relay running for session "${session}"`)))
+    socket.on('error', () => reject(new Error(`no ringmaster running for session "${session}"`)))
     socket.on('connect', () => socket.write(JSON.stringify(message) + '\n'))
     socket.on('data', (chunk) => {
       buffer += chunk
@@ -74,7 +80,7 @@ async function cmdHost({ opts, passthrough }) {
     process.exit(1)
   }
 
-  // A broker refuses a short token, and the uplink would just retry forever
+  // A bigtop refuses a short token, and the uplink would just retry forever
   // with nothing on screen explaining why.
   if (opts.token && opts.token.length < 8) {
     console.error('--token must be at least 8 characters: it is the only thing protecting the session')
@@ -101,9 +107,9 @@ async function cmdHost({ opts, passthrough }) {
     status: statusFile(opts.session),
   })
   const token = opts.token || randomBytes(16).toString('hex')
-  const log = openSync(join(dir, 'relay.log'), 'a')
+  const log = openSync(join(dir, 'ringmaster.log'), 'a')
 
-  const child = spawn(process.execPath, [SELF, '__relay'], {
+  const child = spawn(process.execPath, [SELF, '__ringmaster'], {
     detached: true,
     stdio: ['ignore', log, log],
     env: {
@@ -112,15 +118,15 @@ async function cmdHost({ opts, passthrough }) {
       C2C_PORT: String(opts.port),
       C2C_BIND: opts.host,
       C2C_TOKEN: token,
-      C2C_BROKER_URL: opts.broker ?? '',
-      C2C_BROKER_ROOM: opts.room ?? opts.session,
+      C2C_BIGTOP_URL: opts.bigtop ?? '',
+      C2C_BIGTOP_ROOM: opts.room ?? opts.session,
     },
   })
   child.unref()
 
-  const meta = await waitForRelay(opts.session)
+  const meta = await waitForRingmaster(opts.session)
   if (!meta) {
-    console.error(`relay failed to start - see ${join(dir, 'relay.log')}`)
+    console.error(`ringmaster failed to start - see ${join(dir, 'ringmaster.log')}`)
     await tmux.killSession(opts.session)
     process.exit(1)
   }
@@ -128,18 +134,18 @@ async function cmdHost({ opts, passthrough }) {
   console.log(`c2c-conv session "${opts.session}" is live`)
   console.log('')
   printInvite(meta, opts)
-  console.log(`  mode        spectator (guests need your approval to send)`)
+  console.log(`  mode        gallery (guests need your approval to send)`)
   console.log('')
   console.log('  in the session, without leaving it:')
   console.log('    prefix + a  release the next waiting message')
   console.log('    prefix + d  drop it')
-  console.log('    prefix + y  toggle spectator / yolo')
+  console.log('    prefix + y  toggle gallery / ring')
   console.log('  the status bar shows mode, guests, and what is waiting.')
   console.log('')
 
   if (!isLoopback(opts.host)) {
     console.log(`warning: bound to ${opts.host}, so anyone who can reach this port and`)
-    console.log('         guess the token can watch. Prefer ssh forwarding or --broker.')
+    console.log('         guess the token can watch. Prefer ssh forwarding or --bigtop.')
     console.log('')
   }
 
@@ -201,12 +207,12 @@ function printInvite(meta, opts) {
 
   console.log('  how your guest gets in:')
 
-  if (meta.broker?.url) {
-    console.log(`    broker    ${meta.broker.url}`)
+  if (meta.bigtop?.url) {
+    console.log(`    bigtop    ${meta.bigtop.url}`)
     console.log('              works through NAT on both sides, nothing to forward')
   }
 
-  // The forward has to target an address the relay is actually bound to.
+  // The forward has to target an address the ringmaster is actually bound to.
   const forwardTo = reachable.includes('127.0.0.1') ? '127.0.0.1' : reachable[0]
   console.log(`    ssh       ssh -N -L ${meta.port}:${forwardTo}:${meta.port} ${process.env.USER}@${hostname()}`)
   console.log(`              then open http://127.0.0.1:${meta.port}/?t=${meta.token}`)
@@ -226,18 +232,18 @@ function printInvite(meta, opts) {
 async function cmdInvite({ opts }) {
   const meta = await readMeta(opts.session)
   if (!meta) {
-    console.error(`no relay running for session "${opts.session}"`)
+    console.error(`no ringmaster running for session "${opts.session}"`)
     process.exit(1)
   }
   const status = await control(opts.session, { cmd: 'status' })
-  printInvite({ ...meta, broker: status.broker }, opts)
+  printInvite({ ...meta, bigtop: status.bigtop }, opts)
 }
 
-async function cmdBroker({ opts }) {
-  const { Broker } = await import('../broker/server.js')
-  const broker = new Broker()
-  const address = await broker.listen(opts.port === DEFAULTS.port ? 8080 : opts.port, opts.host)
-  console.log(`c2c broker listening on ${address.address}:${address.port}`)
+async function cmdBigtop({ opts }) {
+  const { Bigtop } = await import('../bigtop/server.js')
+  const bigtop = new Bigtop()
+  const address = await bigtop.listen(opts.port === DEFAULTS.port ? 8080 : opts.port, opts.host)
+  console.log(`c2c bigtop listening on ${address.address}:${address.port}`)
   await new Promise(() => {})
 }
 
@@ -251,7 +257,7 @@ async function waitForReady(session, tries = 40) {
   return state
 }
 
-async function waitForRelay(session, tries = 60) {
+async function waitForRingmaster(session, tries = 60) {
   for (let i = 0; i < tries; i++) {
     const meta = await readMeta(session)
     if (meta) return meta
@@ -264,22 +270,22 @@ function shellQuote(value) {
   return /^[\w./:=-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`
 }
 
-async function cmdRelay() {
+async function cmdRingmaster() {
   const session = process.env.C2C_SESSION
-  const brokerUrl = process.env.C2C_BROKER_URL
-  const relay = new Relay({
+  const bigtopUrl = process.env.C2C_BIGTOP_URL
+  const ringmaster = new Ringmaster({
     session,
     port: Number(process.env.C2C_PORT),
     host: process.env.C2C_BIND,
     token: process.env.C2C_TOKEN,
-    broker: brokerUrl ? { url: brokerUrl, room: process.env.C2C_BROKER_ROOM } : null,
+    bigtop: bigtopUrl ? { url: bigtopUrl, room: process.env.C2C_BIGTOP_ROOM } : null,
   })
-  await relay.start()
-  console.log(`[relay] listening on ${relay.url}`)
-  if (brokerUrl) console.log(`[relay] broker uplink ${relay.broker.guestUrl}`)
+  await ringmaster.start()
+  console.log(`[ringmaster] listening on ${ringmaster.url}`)
+  if (bigtopUrl) console.log(`[ringmaster] bigtop uplink ${ringmaster.bigtop.guestUrl}`)
 
   const shutdown = async () => {
-    await relay.stop()
+    await ringmaster.stop()
     process.exit(0)
   }
   process.on('SIGINT', shutdown)
@@ -287,9 +293,9 @@ async function cmdRelay() {
 
   setInterval(async () => {
     if (!(await tmux.hasSession(session))) {
-      console.log('[relay] tmux session gone, shutting down')
+      console.log('[ringmaster] tmux session gone, shutting down')
       // Otherwise guests just see the socket drop and reconnect forever.
-      relay.announceEnd('the session ended')
+      ringmaster.announceEnd('the session ended')
       await new Promise((r) => setTimeout(r, 150))
       await shutdown()
     }
@@ -307,7 +313,7 @@ async function cmdCtl({ opts, rest }) {
   const [sub, ...args] = rest
   const message = buildControlMessage(sub, args)
   if (!message) {
-    console.error('usage: c2c ctl <status|list|mode spectator|mode yolo|approve ID|deny ID|approve-all|deny-all>')
+    console.error('usage: c2c ctl <status|list|mode gallery|mode ring|approve ID|deny ID|approve-all|deny-all>')
     process.exit(1)
   }
   const reply = await control(opts.session, message)
@@ -326,7 +332,7 @@ function buildControlMessage(sub, args) {
     case 'deny-next':
       return { cmd: sub }
     case 'mode':
-      return { cmd: 'mode', mode: args[0] }
+      return { cmd: 'mode', mode: MODE_ALIASES[args[0]] ?? args[0] }
     case 'approve':
     case 'deny':
       return { cmd: sub, id: args[0] }
@@ -343,8 +349,8 @@ function printStatus(reply) {
   console.log(`session  ${reply.session}`)
   console.log(`mode     ${reply.mode}`)
   console.log(`url      ${reply.url}`)
-  if (reply.broker) {
-    console.log(`broker   ${reply.broker.connected ? 'connected' : 'disconnected'}  ${reply.broker.url}`)
+  if (reply.bigtop) {
+    console.log(`bigtop   ${reply.bigtop.connected ? 'connected' : 'disconnected'}  ${reply.bigtop.url}`)
   }
   console.log(
     `guests   ${reply.guests.length ? reply.guests.map((g) => `${g.name} (${g.via})`).join(', ') : 'none'}`
@@ -372,31 +378,31 @@ function usage() {
 
 usage:
   c2c host [-s NAME] [-p PORT] [--bind ADDR] [--cwd DIR] [--no-attach]
-           [--broker wss://HOST] [--room NAME] [--token SECRET] [-- <claude args>]
+           [--bigtop wss://HOST] [--room NAME] [--token SECRET] [-- <claude args>]
   c2c attach [-s NAME]
   c2c invite [-s NAME]
-  c2c ctl <status|list|mode spectator|mode yolo|approve ID|deny ID|approve-all|deny-all>
+  c2c ctl <status|list|mode gallery|mode ring|approve ID|deny ID|approve-all|deny-all>
   c2c stop [-s NAME]
-  c2c broker [-p PORT] [--bind ADDR]
+  c2c bigtop [-p PORT] [--bind ADDR]
 
 transports:
   loopback + ssh   default, nothing to deploy
   --bind ADDR      serve a LAN or tailnet address directly
-  --broker URL     dial out to a rendezvous broker, works through NAT both ends
+  --bigtop URL     dial out to a bigtop, works through NAT both ends
 
 state lives in ${stateDir('<session>')}`)
 }
 
 const { opts, rest, passthrough } = parseArgs(process.argv.slice(2))
-const command = rest[0] ?? (process.argv[2] === '__relay' ? '__relay' : 'help')
+const command = rest[0] ?? (process.argv[2] === '__ringmaster' ? '__ringmaster' : 'help')
 
 try {
   switch (command) {
     case 'host':
       await cmdHost({ opts, passthrough })
       break
-    case '__relay':
-      await cmdRelay()
+    case '__ringmaster':
+      await cmdRingmaster()
       break
     case 'attach':
       await attach(opts.session)
@@ -407,8 +413,9 @@ try {
     case 'invite':
       await cmdInvite({ opts })
       break
+    case 'bigtop':
     case 'broker':
-      await cmdBroker({ opts })
+      await cmdBigtop({ opts })
       break
     case 'stop':
       await cmdStop({ opts })

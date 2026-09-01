@@ -21,7 +21,7 @@ export function paneFile(name) {
 }
 
 export function metaFile(name) {
-  return join(stateDir(name), 'relay.json')
+  return join(stateDir(name), 'ringmaster.json')
 }
 
 export function statusFile(name) {

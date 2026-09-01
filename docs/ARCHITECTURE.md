@@ -6,7 +6,7 @@
         tmux attach                            xterm.js  <--- pane bytes
              |                                      |     ---> submissions
       +------v---------------------+          +-----v------+
-      |  tmux server "c2c"         |          |  relay     |
+      |  tmux server "c2c"         |          |  ringmaster     |
       |    pane: claude            |<--------->  (node)    |
       +----------------------------+ send-keys +-----+-----+
              |                       pipe-pane        |
@@ -14,6 +14,27 @@
              +--> ~/.claude/projects/.../*.jsonl      |
                   (structured enrichment)        c2c ctl (host)
 ```
+
+## Naming
+
+Component names come from the circus, and each was picked because it explains
+the part rather than because it is on theme:
+
+- **bigtop** is the tent everyone gathers in, which is what a rendezvous server
+  is. `broker` said "intermediary" but not "meeting place".
+- **ringmaster** runs one session: it holds the mode and decides what reaches
+  the ring. `relay` undersold it, since it arbitrates rather than forwards.
+- **gallery** and **ring** are the two modes. The gallery is the cheap seats:
+  watching and heckling, no power. The ring is where the act happens, and a
+  guest there acts as the host. `yolo` shouted the danger, so the docs have to
+  keep shouting it now that the name is quieter.
+
+Vocabulary owned by the tools underneath - tmux panes and sessions, websocket
+frames, the transcript - is deliberately left alone. Renaming a borrowed term
+makes it harder to map the code onto the thing it drives.
+
+The old spellings survive as aliases (`--broker`, `c2c broker`, `mode
+spectator`, `mode yolo`) so anything already written against them keeps working.
 
 ## Components
 
@@ -23,21 +44,21 @@ collides with the host's own tmux. Output leaves via `pipe-pane` into a file;
 input enters via `send-keys -l --`, which sends text literally so guest input can
 never be interpreted as a tmux key name.
 
-**Relay** (`src/relay.js`)
+**Ringmaster** (`src/ringmaster.js`)
 A detached node process. Tails the pane file, hands raw bytes to every active
 transport, holds the policy state, and exposes a unix control socket for the host.
 It knows nothing about how a guest arrived.
 
 **Transports** (`src/transport/`)
 `LocalTransport` serves the guest client over http and accepts websocket
-upgrades. `BrokerTransport` dials out to a rendezvous broker and multiplexes
+upgrades. `BigtopTransport` dials out to a bigtop and multiplexes
 every guest in the room over that one socket. Both emit `guest` channels with the
 same shape, and both expose `broadcastBinary` so pane bytes cross an uplink once
 rather than once per guest.
 
 **Policy** (`src/policy.js`)
-The mode ladder. `spectator` (default) queues guest submissions for host
-approval; `yolo` injects them immediately. Mode lives only in the relay and is
+The mode ladder. `gallery` (default) queues guest submissions for host
+approval; `ring` injects them immediately. Mode lives only in the ringmaster and is
 only mutable through the host's control socket, so a guest can never self-promote.
 
 **Websocket** (`src/ws.js`)
@@ -58,21 +79,21 @@ opposite problems:
 |---|---|---|
 | allowed when pane is `prompt` | yes | yes |
 | allowed when pane is `dialog` | **no**, held | **yes**, that is the point |
-| allowed in spectator | queued for approval | **refused outright** |
-| allowed in yolo | yes | yes |
+| allowed in gallery | queued for approval | **refused outright** |
+| allowed in ring | yes | yes |
 
 Text must never reach a dialog, or a guest message becomes an answer to a
 permission prompt. Keys must reach dialogs, or the guest is stuck the moment
-Claude asks anything. Keys are yolo-only rather than a third rung on the ladder:
+Claude asks anything. Keys are ring-only rather than a third rung on the ladder:
 answering a dialog is a side effect by definition, and queueing individual arrow
 presses for host approval would be unusable.
 
 The key allowlist is arrows, Enter, Escape, Tab, Backspace and digits 1-9.
 Nothing else is accepted, so a guest cannot send `C-c` or arbitrary control
-sequences. The gate lives in the relay, not the UI: a guest opening their own
+sequences. The gate lives in the ringmaster, not the UI: a guest opening their own
 websocket and sending a raw key still gets refused.
 
-The relay polls pane state once a second and broadcasts changes, which is how the
+The ringmaster polls pane state once a second and broadcasts changes, which is how the
 client knows to reveal the keypad. The same poll covers two things guests would
 otherwise never see:
 
@@ -118,20 +139,20 @@ not concealment.
 
 ## Transport ladder
 
-A transport owes the relay two operations: *stream these bytes to the guest* and
+A transport owes the ringmaster two operations: *stream these bytes to the guest* and
 *submit this text*. Everything above it is transport-agnostic, so the rungs are
 additive and can run simultaneously.
 
 1. **loopback + ssh** - the default, nothing to deploy.
 2. **bind wider** - `--bind` for LAN or a tailnet address.
-3. **rendezvous broker** - `--broker`, both sides dial out, works through NAT on
+3. **the bigtop** - `--bigtop`, both sides dial out, works through NAT on
    both ends.
 
 Full detail, wire protocol and deployment: [TRANSPORTS.md](TRANSPORTS.md).
 
 ## Limits on what a guest can send
 
-The relay accepts a socket from someone else, over a broker possibly from
+The ringmaster accepts a socket from someone else, over a bigtop possibly from
 anywhere with the token, so guest input is bounded at both layers:
 
 - **Frames are capped at 1MB.** A peer can declare a payload length of up to
@@ -142,8 +163,8 @@ anywhere with the token, so guest input is bounded at both layers:
   somebody typed.
 - **The pending queue is capped at 50.** It is the one thing a guest can grow
   without the host agreeing to anything, so it cannot be unbounded. Verified
-  against a live relay with a declared 4GiB frame: connection closed, resident
-  memory unchanged, relay healthy.
+  against a live ringmaster with a declared 4GiB frame: connection closed, resident
+  memory unchanged, ringmaster healthy.
 
 ## Security model
 
@@ -151,7 +172,7 @@ The token in the URL is the only credential. It is generated per session and
 never written to a world-readable place. State lives in `~/.c2c-conv/<session>/`
 at mode 0700.
 
-In `spectator` the guest cannot cause any side effect: submissions sit in a queue
+In `gallery` the guest cannot cause any side effect: submissions sit in a queue
 until the host releases them.
 
 **The injection guard is part of this, not a nicety.** `send-keys` of text plus
@@ -160,14 +181,14 @@ confirms whatever option is highlighted. Found the hard way during the first
 end-to-end run: an approved guest message arrived while the workspace-trust
 dialog was up, and the trailing Enter selected `No, exit` and killed the session.
 The same mechanism would let an innocuous-looking guest message confirm a
-permission prompt, which would defeat the whole point of spectator mode. So every
+permission prompt, which would defeat the whole point of gallery mode. So every
 write path goes through `tmux.waitForPrompt` first: it waits out a running turn,
 but refuses outright on a dialog and tells the host the message was held.
 
 State detection reads an *uncoloured* `capture-pane`. With `-e`, tmux wraps each
 individual word in its own SGR pair, so phrase matching silently never matches.
 
-In `yolo` the guest can run arbitrary code as the host. There is no way to offer
+In `ring` the guest can run arbitrary code as the host. There is no way to offer
 "send prompts freely" without this, because a prompt can ask for anything. The
 mitigation is social, not technical: only elevate for someone you would hand your
 keyboard to.
@@ -183,7 +204,7 @@ wrote. Three mechanisms stop that:
 skip the queue deliberately: they are single atomic keystrokes and should not
 wait out a text injection's timeout.
 
-**A draft guard.** Before injecting, the relay reads the input box. Anything in
+**A draft guard.** Before injecting, the ringmaster reads the input box. Anything in
 it is the host's unsent draft, so the message is held and the host is told why.
 
 **A settle step.** `send-keys` returns once tmux has queued the keys, well
@@ -228,12 +249,12 @@ next waiting message, `prefix + d` drops it, `prefix + y` toggles the mode. The
 bindings live on the dedicated `-L c2c` tmux server, so they cannot collide with
 the host's own tmux config, and each one shells back into `c2c ctl`.
 
-This is a security property, not a convenience. Spectator is the default and the
+This is a security property, not a convenience. Gallery is the default and the
 safe mode; if approving required leaving the session to type a command, the
-practical outcome is everyone parking in yolo. The safe path has to be the easy
+practical outcome is everyone parking in ring. The safe path has to be the easy
 one.
 
-The status line reads a file the relay rewrites on every state change, rather
+The status line reads a file the ringmaster rewrites on every state change, rather
 than spawning a node process every couple of seconds the way a `#(c2c ctl ...)`
 status command would. tmux only runs `#()` jobs while a client is attached, so
 it costs nothing when the host is detached.
@@ -257,7 +278,7 @@ are pure functions with their own tests:
 ## Tests
 
 Most of the suite is pure logic - the policy gate, the websocket framing, the
-screen parsing, the transcript records, the broker protocol - because that is
+screen parsing, the transcript records, the bigtop protocol - because that is
 what unit tests can reach.
 
 But every bug in this project that cost real time lived in the tmux

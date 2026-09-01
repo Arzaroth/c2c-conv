@@ -1,5 +1,5 @@
-export const SPECTATOR = 'spectator'
-export const YOLO = 'yolo'
+export const GALLERY = 'gallery'
+export const RING = 'ring'
 
 // A message longer than this is not a prompt someone typed, and the queue is
 // what a guest can grow without the host agreeing to anything.
@@ -12,7 +12,7 @@ export const ALLOWED_KEYS = new Set([
 ])
 
 export class Policy {
-  #mode = SPECTATOR
+  #mode = GALLERY
   #pending = new Map()
   #nextId = 1
   #listeners = new Set()
@@ -22,7 +22,7 @@ export class Policy {
   }
 
   setMode(mode) {
-    if (mode !== SPECTATOR && mode !== YOLO) {
+    if (mode !== GALLERY && mode !== RING) {
       throw new Error(`unknown mode: ${mode}`)
     }
     const changed = this.#mode !== mode
@@ -47,7 +47,7 @@ export class Policy {
       return { action: 'rejected', reason: 'too long' }
     }
 
-    if (this.#mode === YOLO) {
+    if (this.#mode === RING) {
       this.#emit({ type: 'sent', text: clean, guest })
       return { action: 'send', text: clean }
     }
@@ -64,11 +64,11 @@ export class Policy {
   }
 
   // Answering a dialog is a side effect by definition, and queueing individual
-  // arrow presses for approval would be unusable, so keys are a yolo-only
+  // arrow presses for approval would be unusable, so keys are a ring-only
   // capability rather than a third thing on the ladder.
   submitKey({ key, guest }) {
     if (!ALLOWED_KEYS.has(key)) return { action: 'rejected', reason: 'unknown key' }
-    if (this.#mode !== YOLO) return { action: 'refused', reason: 'spectator' }
+    if (this.#mode !== RING) return { action: 'refused', reason: 'gallery' }
     this.#emit({ type: 'key', key, guest })
     return { action: 'send', key }
   }

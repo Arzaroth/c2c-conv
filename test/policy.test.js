@@ -1,20 +1,20 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { MAX_PENDING, MAX_TEXT, Policy, SPECTATOR, YOLO } from '../src/policy.js'
+import { MAX_PENDING, MAX_TEXT, Policy, GALLERY, RING } from '../src/policy.js'
 
-test('spectator queues instead of sending', () => {
+test('gallery queues instead of sending', () => {
   const policy = new Policy()
-  assert.equal(policy.mode, SPECTATOR)
+  assert.equal(policy.mode, GALLERY)
 
   const result = policy.submit({ text: 'hello', guest: 'bozo' })
   assert.equal(result.action, 'queued')
   assert.equal(policy.list().length, 1)
 })
 
-test('yolo sends straight through', () => {
+test('ring sends straight through', () => {
   const policy = new Policy()
-  policy.setMode(YOLO)
+  policy.setMode(RING)
 
   const result = policy.submit({ text: 'hello', guest: 'bozo' })
   assert.equal(result.action, 'send')
@@ -49,7 +49,7 @@ test('deny drops the message without sending', () => {
 
 test('newlines collapse so one message stays one turn', () => {
   const policy = new Policy()
-  policy.setMode(YOLO)
+  policy.setMode(RING)
 
   const result = policy.submit({ text: 'first\nsecond\r\nthird', guest: 'bozo' })
   assert.equal(result.text, 'first second third')
@@ -61,23 +61,23 @@ test('empty submissions are ignored', () => {
   assert.equal(policy.submit({ text: null }).action, 'ignored')
 })
 
-test('a spectator cannot answer a dialog with keys', () => {
+test('a gallery cannot answer a dialog with keys', () => {
   const policy = new Policy()
   const result = policy.submitKey({ key: 'Enter', guest: 'bozo' })
   assert.equal(result.action, 'refused')
-  assert.equal(result.reason, 'spectator')
+  assert.equal(result.reason, 'gallery')
 })
 
-test('yolo lets keys through', () => {
+test('ring lets keys through', () => {
   const policy = new Policy()
-  policy.setMode(YOLO)
+  policy.setMode(RING)
   assert.equal(policy.submitKey({ key: 'Down', guest: 'bozo' }).action, 'send')
   assert.equal(policy.submitKey({ key: '2', guest: 'bozo' }).action, 'send')
 })
 
-test('keys outside the allowlist are rejected even in yolo', () => {
+test('keys outside the allowlist are rejected even in ring', () => {
   const policy = new Policy()
-  policy.setMode(YOLO)
+  policy.setMode(RING)
   for (const key of ['C-c', 'q', 'F1', ';', 'Enter Enter', '']) {
     assert.equal(policy.submitKey({ key, guest: 'bozo' }).action, 'rejected', key)
   }
@@ -86,7 +86,7 @@ test('keys outside the allowlist are rejected even in yolo', () => {
 test('unknown modes are rejected', () => {
   const policy = new Policy()
   assert.throws(() => policy.setMode('admin'))
-  assert.equal(policy.mode, SPECTATOR)
+  assert.equal(policy.mode, GALLERY)
 })
 
 test('an oversized message is rejected rather than queued', () => {
@@ -122,10 +122,10 @@ test('draining the queue makes room again', () => {
   assert.equal(policy.submit({ text: 'now there is room', guest: 'bozo' }).action, 'queued')
 })
 
-// yolo has no queue, so the cap must not accidentally gate it.
-test('the queue cap does not apply in yolo', () => {
+// ring has no queue, so the cap must not accidentally gate it.
+test('the queue cap does not apply in ring', () => {
   const policy = new Policy()
-  policy.setMode(YOLO)
+  policy.setMode(RING)
   for (let i = 0; i < MAX_PENDING + 10; i++) {
     assert.equal(policy.submit({ text: `m${i}`, guest: 'bozo' }).action, 'send')
   }

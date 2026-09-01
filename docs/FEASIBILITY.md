@@ -36,9 +36,9 @@ which is exactly the requirement.
 The spike also drove the workspace-trust dialog with `Down` + `Enter`, confirming
 that injection reaches modal dialogs and not just the prompt box. Permission
 approval and prompt submission are therefore the same mechanism, which is what
-makes the spectator/yolo ladder cheap to implement.
+makes the gallery/ring ladder cheap to implement.
 
-### 2. stream-json broker - viable, rejected for v0
+### 2. stream-json bridge - viable, rejected for v0
 
 `claude -p --input-format stream-json --output-format stream-json
 --include-partial-messages --replay-user-messages` is a real bidirectional
@@ -96,5 +96,5 @@ c2c-conv is not redundant with it.
 - Two writers on one PTY can interleave. Needs input arbitration.
 - Guest text containing newlines would submit mid-message, so newlines are
   collapsed to spaces before injection.
-- In yolo mode a guest has arbitrary code execution as the host. This is inherent
+- In ring mode a guest has arbitrary code execution as the host. This is inherent
   to the requirement, not a fixable defect. It has to be loud in the UI.

@@ -5,15 +5,15 @@ import { randomBytes } from 'node:crypto'
 import * as tmux from './tmux.js'
 import { PaneStream } from './panestream.js'
 import { TranscriptStream } from './transcript.js'
-import { Policy, SPECTATOR, YOLO } from './policy.js'
+import { Policy, GALLERY, RING } from './policy.js'
 import { LocalTransport } from './transport/local.js'
-import { BrokerTransport } from './transport/broker.js'
+import { BigtopTransport } from './transport/bigtop.js'
 import { controlSocket, ensureStateDir, metaFile, paneFile, statusFile } from './paths.js'
 
 const MAX_PANE_BYTES = Number(process.env.C2C_MAX_PANE_BYTES) || 8 * 1024 * 1024
 const MAX_HISTORY = 500
 
-export class Relay {
+export class Ringmaster {
   #session
   #token
   #policy = new Policy()
@@ -21,7 +21,7 @@ export class Relay {
   #transports = []
   #pane = null
   #control = null
-  #brokerStatus = null
+  #bigtopStatus = null
   #paneState = 'unknown'
   #paneSize = { cols: 0, rows: 0 }
   #stateTimer = null
@@ -29,15 +29,15 @@ export class Relay {
   #transcript = null
   #history = []
 
-  constructor({ session, port, host = '127.0.0.1', token, broker }) {
+  constructor({ session, port, host = '127.0.0.1', token, bigtop }) {
     this.#session = session
     this.#token = token || randomBytes(16).toString('hex')
 
     this.#transports.push(new LocalTransport({ port, host, token: this.#token }))
 
-    if (broker?.url) {
+    if (bigtop?.url) {
       this.#transports.push(
-        new BrokerTransport({ url: broker.url, room: broker.room, token: broker.token || this.#token })
+        new BigtopTransport({ url: bigtop.url, room: bigtop.room, token: bigtop.token || this.#token })
       )
     }
   }
@@ -50,8 +50,8 @@ export class Relay {
     return this.#transports.find((t) => t.name === 'local')
   }
 
-  get broker() {
-    return this.#transports.find((t) => t.name === 'broker')
+  get bigtop() {
+    return this.#transports.find((t) => t.name === 'bigtop')
   }
 
   get url() {
@@ -78,8 +78,8 @@ export class Relay {
     for (const transport of this.#transports) {
       transport.on('guest', (channel) => this.#onGuest(channel))
       transport.on('status', (status) => {
-        this.#brokerStatus = status
-        console.log(`[broker] ${JSON.stringify(status)}`)
+        this.#bigtopStatus = status
+        console.log(`[bigtop] ${JSON.stringify(status)}`)
       })
       await transport.start()
     }
@@ -116,7 +116,7 @@ export class Relay {
     await this.#pane?.stop()
     for (const transport of this.#transports) await transport.stop()
     this.#control?.close()
-    // pane.raw is a transient buffer, not a record. relay.log stays.
+    // pane.raw is a transient buffer, not a record. ringmaster.log stays.
     for (const path of [controlSocket(this.#session), metaFile(this.#session), paneFile(this.#session)]) {
       try {
         await unlink(path)
@@ -147,12 +147,20 @@ export class Relay {
     }, 1000)
   }
 
-  async #reseed() {
-    this.#broadcastJson({
+  async #screenMessage() {
+    return {
       type: 'screen',
       data: await tmux.capturePane(this.#session),
       cursor: await tmux.cursor(this.#session),
-    })
+    }
+  }
+
+  async #reseed() {
+    this.#broadcastJson(await this.#screenMessage())
+  }
+
+  async #sendScreen(channel) {
+    if (!channel.closed) channel.sendJson(await this.#screenMessage())
   }
 
   // pipe-pane appends for the lifetime of the session. Rotating loses the bytes
@@ -178,7 +186,7 @@ export class Relay {
       port: local.port,
       token: this.#token,
       url: local.url,
-      broker: this.broker ? { url: this.broker.guestUrl } : null,
+      bigtop: this.bigtop ? { url: this.bigtop.guestUrl } : null,
     }
   }
 
@@ -202,11 +210,7 @@ export class Relay {
       rows,
       guestId: guest.id,
     })
-    channel.sendJson({
-      type: 'screen',
-      data: await tmux.capturePane(this.#session),
-      cursor: await tmux.cursor(this.#session),
-    })
+    await this.#sendScreen(channel)
     if (this.#history.length) {
       channel.sendJson({ type: 'transcript:history', entries: this.#history })
     }
@@ -225,6 +229,14 @@ export class Relay {
     if (msg.type === 'name' && typeof msg.name === 'string') {
       guest.name = msg.name.slice(0, 40).replace(/[^\w .-]/g, '') || 'guest'
       guest.channel.sendJson({ type: 'named', name: guest.name })
+      return
+    }
+
+    // A browser guest renders the live byte stream, so it only needs a snapshot
+    // when it joins. A programmatic guest has no terminal emulator and has to
+    // be able to ask for the current screen.
+    if (msg.type === 'refresh') {
+      this.#sendScreen(guest.channel)
       return
     }
 
@@ -346,7 +358,7 @@ export class Relay {
   async #writeStatusLine() {
     const pending = this.#policy.list().length
     const guests = this.#guests.size
-    const mode = this.#policy.mode === YOLO ? '#[fg=#ff2e4c,bold]YOLO' : '#[fg=#ffd93d]spectator'
+    const mode = this.#policy.mode === RING ? '#[fg=#ff2e4c,bold]RING' : '#[fg=#ffd93d]gallery'
 
     const parts = [
       `#[fg=#9a90b0]c2c ${mode}#[default]`,
@@ -408,13 +420,13 @@ export class Relay {
           guests: [...this.#guests.values()].map((g) => ({ id: g.id, name: g.name, via: g.origin })),
           pending: this.#policy.list(),
           url: this.url,
-          broker: this.broker
-            ? { url: this.broker.guestUrl, connected: this.broker.connected, last: this.#brokerStatus }
+          bigtop: this.bigtop
+            ? { url: this.bigtop.guestUrl, connected: this.bigtop.connected, last: this.#bigtopStatus }
             : null,
         }
       case 'mode': {
         const next = msg.mode === 'toggle'
-          ? (this.#policy.mode === YOLO ? SPECTATOR : YOLO)
+          ? (this.#policy.mode === RING ? GALLERY : RING)
           : msg.mode
         return { ok: true, mode: this.#policy.setMode(next) }
       }
@@ -459,4 +471,4 @@ export class Relay {
   }
 }
 
-export { SPECTATOR }
+export { GALLERY }

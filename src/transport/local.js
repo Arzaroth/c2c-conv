@@ -79,7 +79,7 @@ export class LocalTransport extends EventEmitter {
       const body = await readFile(join(WEB_ROOT, file))
       res.writeHead(200, {
         'content-type': MIME[extname(file)] || 'application/octet-stream',
-        // A guest holding a cached client against an updated relay is a
+        // A guest holding a cached client against an updated ringmaster is a
         // confusing failure that looks like a broken feature.
         'cache-control': 'no-cache, no-store, must-revalidate',
       })
