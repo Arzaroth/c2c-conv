@@ -7,6 +7,7 @@ import { dirname, extname, join, normalize } from 'node:path'
 
 import { handshake } from '../ws.js'
 import { timingSafeEqualString } from '../secret.js'
+import { MAX_BOZOS } from '../policy.js'
 
 const WEB_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'web')
 
@@ -94,6 +95,14 @@ export class LocalTransport extends EventEmitter {
     const url = new URL(req.url, 'http://localhost')
     if (!timingSafeEqualString(url.searchParams.get('t'), this.#token)) {
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
+      socket.destroy()
+      return
+    }
+
+    // The bigtop capped this from the start; the local transport did not, and
+    // it is the one everybody actually uses.
+    if (this.#channels.size >= MAX_BOZOS) {
+      socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n')
       socket.destroy()
       return
     }

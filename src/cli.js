@@ -11,6 +11,7 @@ import { randomBytes } from 'node:crypto'
 import * as tmux from './tmux.js'
 import { Ringmaster } from './ringmaster.js'
 import { controlSocket, ensureStateDir, metaFile, stateDir, statusFile } from './paths.js'
+import { version, versionReport } from './version.js'
 
 const SELF = fileURLToPath(import.meta.url)
 
@@ -137,7 +138,7 @@ async function cmdHost({ opts, passthrough }) {
 
   const ready = opts.tunnel ? await waitForTunnel(opts.session) : meta
 
-  console.log(`c2c-conv session "${opts.session}" is live`)
+  console.log(`c2c-conv ${version()} - session "${opts.session}" is live`)
   console.log('')
   if (opts.tunnel && !ready.tunnel) {
     console.log('  note: cloudflared has not reported a URL yet.')
@@ -439,7 +440,7 @@ async function cmdStop({ opts }) {
 }
 
 function usage() {
-  console.log(`c2c-conv - share one Claude Code session with a second person
+  console.log(`c2c-conv ${version()} - share one Claude Code session with a second person
 
 usage:
   c2c host [-s NAME] [-p PORT] [--bind ADDR] [--cwd DIR] [--no-attach] [--tunnel]
@@ -448,6 +449,7 @@ usage:
   c2c invite [-s NAME]
   c2c ctl <status|list|mode gallery|mode yolo|approve ID|deny ID|approve-all|deny-all>
   c2c stop [-s NAME]
+  c2c version | --version
   c2c bigtop [-p PORT] [--bind ADDR]
   c2c zavatta [-s NAME] [--url URL] [--name WHO]  join a session as an AI bozo (MCP)
 
@@ -458,6 +460,11 @@ transports:
   --tunnel         public URL via cloudflared, nothing to deploy or forward
 
 state lives in ${stateDir('<session>')}`)
+}
+
+if (process.argv.includes('--version') || process.argv.includes('-v')) {
+  console.log(versionReport())
+  process.exit(0)
 }
 
 const { opts, rest, passthrough } = parseArgs(process.argv.slice(2))
@@ -491,6 +498,9 @@ try {
       break
     case 'stop':
       await cmdStop({ opts })
+      break
+    case 'version':
+      console.log(versionReport())
       break
     default:
       usage()

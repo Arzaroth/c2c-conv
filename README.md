@@ -38,16 +38,25 @@ code harder to map onto them.
 
 `tmux`, `node >= 20`, and `claude` on PATH. No dependencies to install.
 
-## Install
+## Build and install
 
-There is nothing to build. Put `c2c` on your PATH with either:
+There is nothing to build: no dependencies, no compile step. Installing means
+putting `c2c` on your PATH.
 
 ```sh
-npm link                       # symlinks c2c into your npm prefix
-ln -s "$PWD/src/cli.js" ~/.local/bin/c2c
+mise trust && mise run install     # symlinks ~/.local/bin/c2c
+c2c --version                      # 0.1.0 (38c6eba), and which checkout it points at
 ```
 
-Or skip it entirely and run `node src/cli.js` wherever the docs say `c2c`.
+`mise tasks` lists the rest: `test`, `check`, `host`, `local`, `bigtop`,
+`zavatta`, `status`, `invite`, `stop`, `uninstall`.
+
+Without mise, `ln -s "$PWD/src/cli.js" ~/.local/bin/c2c`, or `npm link`, or just
+run `node src/cli.js` wherever the docs say `c2c`.
+
+Because it is normally a symlink into a checkout, `c2c --version` reports the
+commit as well as the release, and marks it `-dirty` when the working tree has
+changes - so you can tell what is actually installed.
 
 ## Use
 
@@ -136,6 +145,13 @@ c2c ctl status            # who is connected, what is waiting
 c2c ctl approve 3         # release a specific message
 c2c ctl deny 3
 ```
+
+## How many bozos
+
+Up to **30** at once, per session and per bigtop room. A clown car holds about
+thirty; past that a shared terminal is a broadcast, and every bozo costs another
+copy of the pane stream. The 31st is refused rather than quietly degrading
+everyone else.
 
 ## When the session asks a question
 

@@ -4,6 +4,7 @@ import { connect as netConnect } from 'node:net'
 import { randomBytes } from 'node:crypto'
 
 import { Bigtop, resolvePublic } from '../bigtop/server.js'
+import { MAX_BOZOS } from '../src/policy.js'
 
 let bigtop
 let base
@@ -248,4 +249,23 @@ test('claiming rooms is capped', async () => {
 
   for (const host of hosts) host.close()
   capped.close()
+})
+
+// A clown car holds about thirty.
+test('a room fills up at MAX_BOZOS', async () => {
+  const car = new Bigtop()
+  const address = await car.listen(0, '127.0.0.1')
+  const url = `ws://127.0.0.1:${address.port}`
+
+  const host = await open(`${url}/uplink?room=clowncar&t=secret-token`)
+  const riders = []
+  for (let i = 0; i < MAX_BOZOS; i++) {
+    riders.push(await open(`${url}/bozo?room=clowncar&t=secret-token`))
+  }
+
+  await assert.rejects(() => open(`${url}/bozo?room=clowncar&t=secret-token`), 'the 31st must be refused')
+
+  for (const rider of riders) rider.close()
+  host.close()
+  car.close()
 })

@@ -7,6 +7,7 @@ import { dirname, extname, join, resolve, sep } from 'node:path'
 
 import { handshake } from '../src/ws.js'
 import { timingSafeEqualString } from '../src/secret.js'
+import { MAX_BOZOS } from '../src/policy.js'
 
 const WEB_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', 'web')
 
@@ -17,7 +18,7 @@ const MIME = {
   '.svg': 'image/svg+xml',
 }
 
-const MAX_GUESTS = 16
+
 const HEARTBEAT_MS = 15000
 
 // A bigtop is meant to sit on a public host, where anything unbounded is
@@ -183,7 +184,7 @@ export class Bigtop {
     const room = this.#rooms.get(roomId)
     if (!room || !room.host || room.host.closed) return reject(socket, 404, 'no host in this room')
     if (!timingSafeEqualString(token, room.token)) return reject(socket, 401, 'bad token')
-    if (room.bozos.size >= MAX_GUESTS) return reject(socket, 429, 'room full')
+    if (room.bozos.size >= MAX_BOZOS) return reject(socket, 429, 'the clown car is full')
 
     const ws = handshake(req, socket)
     if (!ws) return

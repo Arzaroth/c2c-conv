@@ -2,6 +2,8 @@
 // gets a proper clown's name, after Achille Zavatta.
 import { EventEmitter } from 'node:events'
 
+import { packageVersion } from './version.js'
+
 // Terminal output is for a terminal. An agent gets the screen as plain text.
 const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][0-9A-B]|\x1b[=>]/g
 
@@ -230,7 +232,7 @@ export class McpServer {
         this.#reply(id, {
           protocolVersion: params?.protocolVersion ?? '2024-11-05',
           capabilities: { tools: {} },
-          serverInfo: { name: 'zavatta', version: '0.1.0' },
+          serverInfo: { name: 'zavatta', version: packageVersion() },
         })
         return
       }

@@ -1,0 +1,64 @@
+[tools]
+node = "24"
+
+[tasks.install]
+description = "Put c2c on your PATH (~/.local/bin/c2c)"
+run = """
+mkdir -p "$HOME/.local/bin"
+ln -sf "{{config_root}}/src/cli.js" "$HOME/.local/bin/c2c"
+chmod +x "{{config_root}}/src/cli.js"
+echo "c2c -> {{config_root}}/src/cli.js"
+command -v c2c >/dev/null && echo "on PATH: $(command -v c2c)" || echo "warning: ~/.local/bin is not on your PATH"
+"""
+
+[tasks.uninstall]
+description = "Remove the c2c symlink"
+run = 'rm -f "$HOME/.local/bin/c2c" && echo "removed"'
+
+[tasks.test]
+description = "Run the whole suite"
+run = 'node --test "{{config_root}}/test/*.test.js"'
+
+[tasks.check]
+description = "Syntax-check every source file"
+run = """
+cd "{{config_root}}"
+for f in src/*.js src/transport/*.js bigtop/server.js web/client.js test/*.js; do
+  node --check "$f" || exit 1
+done
+echo "all files parse"
+"""
+
+# There is nothing to compile: no dependencies, no bundler, no build step.
+# This exists so "how do I build it" has an answer that is not silence.
+[tasks.build]
+description = "No-op: c2c is plain JS with no dependencies"
+run = 'echo "nothing to build - zero dependencies, no compile step. Run: mise run install"'
+
+[tasks.host]
+description = "Share a session here, over a cloudflared tunnel"
+run = 'node "{{config_root}}/src/cli.js" host --tunnel'
+
+[tasks.local]
+description = "Share a session here, loopback only (guest forwards a port)"
+run = 'node "{{config_root}}/src/cli.js" host'
+
+[tasks.bigtop]
+description = "Run a rendezvous bigtop on :8080"
+run = 'node "{{config_root}}/bigtop/server.js" --port 8080 --bind 127.0.0.1'
+
+[tasks.zavatta]
+description = "Join the running session as an AI bozo (MCP, stdio)"
+run = 'node "{{config_root}}/src/cli.js" zavatta'
+
+[tasks.status]
+description = "Who is connected and what is waiting"
+run = 'node "{{config_root}}/src/cli.js" ctl status'
+
+[tasks.invite]
+description = "Reprint the bozo instructions"
+run = 'node "{{config_root}}/src/cli.js" invite'
+
+[tasks.stop]
+description = "Tear the session down"
+run = 'node "{{config_root}}/src/cli.js" stop'

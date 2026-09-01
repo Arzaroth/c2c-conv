@@ -6,6 +6,10 @@ export const YOLO = 'yolo'
 export const MAX_TEXT = 8000
 export const MAX_PENDING = 50
 
+// A clown car holds about thirty. Past that a shared terminal is a broadcast,
+// and every bozo costs a copy of the pane stream.
+export const MAX_BOZOS = 30
+
 export const ALLOWED_KEYS = new Set([
   'Up', 'Down', 'Left', 'Right', 'Enter', 'Escape', 'Tab', 'BSpace',
   '1', '2', '3', '4', '5', '6', '7', '8', '9',
