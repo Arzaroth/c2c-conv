@@ -350,10 +350,18 @@ A second agent can join as a bozo, under exactly the same gate as a person:
 { "mcpServers": { "c2c": { "command": "node", "args": ["/path/to/c2c-conv/dist/src/cli.js", "mcp"] } } }
 ```
 
-It gets seven tools: `c2c_screen` (the session right now, as plain text),
+It gets eight tools: `c2c_screen` (the session right now, as plain text),
 `c2c_history` (the conversation, including turns from before it joined),
-`c2c_status`, `c2c_send`, `c2c_press`, and `c2c_say` / `c2c_f2f` for the lane -
-an agent that cannot hear "wait, do not run that" is the reason the lane exists.
+`c2c_status`, `c2c_send`, `c2c_press`, `c2c_wait`, and `c2c_say` / `c2c_f2f` for
+the lane - an agent that cannot hear "wait, do not run that" is the reason the
+lane exists.
+
+`c2c_wait` blocks until the session does something worth coming back for: the
+turn ends with nothing of the agent's still queued (`idle`), a question comes up
+(`dialog`), claude answers (`reply`), or somebody speaks in the lane (`lane`).
+Without it the only way to notice any of that is to ask for the screen in a
+loop, which costs a whole screen every time round and still misses whatever
+happened between two asks.
 
 There is deliberately **no tool to approve, deny or change the mode.** An agent
 that could release its own messages would not be a bozo, it would be an unlocked

@@ -286,6 +286,26 @@ const TOOLS = [
     },
   },
   {
+    name: 'c2c_wait',
+    description:
+      'Block until the shared session does something, rather than asking for the screen in a loop. Comes back as soon as it happens, or says nothing did when the wait runs out.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        for: {
+          type: 'string',
+          enum: [...WAIT_FOR],
+          description:
+            'idle (default): the session is at a prompt and nothing of yours is still waiting to go in. dialog: the session is asking a question. reply: claude answered. lane: somebody said something in the f2f lane. anything: whichever of those comes first, which returns at once if the session is already free or already asking.',
+        },
+        seconds: {
+          type: 'number',
+          description: 'How long to wait before giving up (default 60, max 300)',
+        },
+      },
+    },
+  },
+  {
     name: 'c2c_press',
     description:
       'Press a key when the session is asking a question (arrow keys, Enter, Escape, digits). Refused in gallery mode, because answering a prompt is a side effect.',
@@ -311,6 +331,8 @@ interface ToolArgs {
   text?: string
   limit?: number
   key?: string
+  for?: string
+  seconds?: number
 }
 
 export class McpServer {
@@ -443,6 +465,31 @@ export class McpServer {
         return `Not delivered: the session is ${answer.state}.`
       }
       return 'Sent.'
+    }
+
+    if (name === 'c2c_wait') {
+      const what = (WAIT_FOR as readonly string[]).includes(args.for ?? '')
+        ? (args.for as WaitFor)
+        : 'idle'
+      const asked = Number(args.seconds)
+      const timeoutMs = asked > 0 ? Math.min(asked * 1000, MAX_WAIT_MS) : WAIT_MS
+      const result = await link.wait({ for: what, timeoutMs })
+
+      if (!result.done) {
+        const held = [
+          link.pending.length ? `${link.pending.length} of yours waiting on the host` : '',
+          link.outbox.length ? `${link.outbox.length} in the outbox` : '',
+        ].filter(Boolean)
+        const holding = held.length ? ` (${held.join(', ')})` : ''
+        return `Nothing happened in ${Math.round(timeoutMs / 1000)}s. The session is ${result.state}${holding}.`
+      }
+
+      if (result.why === 'idle') return 'The session is free: at a prompt, with nothing of yours left to go in.'
+      if (result.why === 'dialog') {
+        return 'The session is asking a question. c2c_screen shows it, c2c_press answers it.'
+      }
+      if (result.why === 'reply') return 'Claude answered. c2c_history has the turn.'
+      return 'Somebody said something in the f2f lane. c2c_f2f has it.'
     }
 
     if (name === 'c2c_press') {

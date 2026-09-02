@@ -11,6 +11,11 @@ than adding to it.
 
 ### Added
 
+- `c2c_wait` for the MCP bozo: an agent can block until the session does
+  something instead of asking for the screen in a loop. It waits for the turn
+  to end with nothing of its own still queued, for a dialog, for a reply from
+  claude, or for a line in the f2f lane. Bounded, and a wait that runs out
+  reports that nothing happened rather than erroring.
 - `c2c_status` says how many of the agent's own messages the host is still
   holding, which until now it had no way to see.
 

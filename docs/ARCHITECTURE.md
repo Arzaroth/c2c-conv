@@ -393,6 +393,19 @@ takes the screen from snapshots instead - which is why the ringmaster answers a
 `refresh` request. And it strips ANSI before handing anything over, since escape
 sequences are for a terminal, not a reader.
 
+It also waits rather than polls. A browser bozo has a person watching it, so a
+change arriving on the socket is enough; an agent only looks when a tool call
+makes it look, and looking means a whole screen. `c2c_wait` sits on the socket
+the client already has and returns on the first thing worth returning for. The
+case it is built around is *idle*, which is not simply the pane being at a
+prompt: a message of the agent's own still held by the host, or still in the
+outbox, means the turn it is waiting on has not been asked for yet. The pending
+half of that is per-agent rather than the room's, because `policy:queued` goes
+to the whiteface alone, so what an agent tracks is what it was told about
+itself. Waiting is bounded at five minutes, since an MCP client will cut a tool
+call that never returns, and a wait that runs out reports that nothing happened
+rather than failing.
+
 **It exposes no approve, deny or mode tool.** That is the whole design: an agent
 that could release its own messages would collapse the gate the rest of the
 project is built on. Host control stays on the tmux keys and the unix control
