@@ -22,20 +22,18 @@ two.
       is absent rather than skipping. That is 9 red tests on any machine that
       does not have it, which is every CI runner by default.
 
-## Ship xterm locally, and add CI
+## Add CI
 
-**S.** Vendor the two `cdn.jsdelivr.net` tags from `web/index.html:8,408` into
-`web/vendor/`, and add a workflow that installs tmux and runs the whole suite,
-integration tests included.
+**S.** Add a workflow that installs tmux and runs the whole suite, integration
+tests included.
 
-*Why.* "No runtime dependencies" is the project's own selling point while the
-client pulls ~300KB from a CDN on load. A bozo on a tailnet with no route out, a
-LAN demo on a locked-down network, or the container rung behind an egress policy
-all get a blank mirror, and nothing on screen says why. The Dockerfile is already
-a working CI substrate: it has node, tmux and claude in it.
+*Why.* Nothing runs the integration tests anywhere but a developer's machine
+with tmux on it. The Dockerfile is already a working CI substrate: it has node,
+tmux and claude in it. (The other half of this item, xterm from a CDN, is done:
+vite bundles it into `dist/web`.)
 
-*Touches:* `web/index.html`, `web/vendor/`, `test/tmux.integration.test.ts`,
-new `.github/workflows/`, `Dockerfile`.
+*Touches:* `test/tmux.integration.test.ts`, new `.github/workflows/`,
+`Dockerfile`.
 
 ## Attribution and an audit log
 
@@ -148,7 +146,7 @@ currently discards history rather than rolling it.
 
 By value against effort:
 
-1. Vendor xterm and add CI - unbreaks a rung that already ships
+1. Add CI - the integration tests run nowhere automatic
 2. Attribution and an audit log - closes the hole the security model opens
 3. The heckle channel - the biggest gap in the actual experience
 4. `c2c resume`

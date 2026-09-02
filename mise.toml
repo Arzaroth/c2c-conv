@@ -7,11 +7,11 @@ description = "Install the dev dependencies (pnpm)"
 run = 'cd "{{config_root}}" && pnpm install'
 
 # TypeScript now, so there is a compile step: sources in src/, bigtop/ and
-# test/ build to dist/, and web/client.ts builds in place to the client.js the
-# ringmaster serves. Everything that runs code depends on it. The steps live in
+# test/ build to dist/, and vite bundles web/ to dist/web, which the ringmaster
+# serves. Everything that runs code depends on it. The steps live in
 # package.json so there is one definition of the build.
 [tasks.build]
-description = "Compile TypeScript to dist/ and web/client.js"
+description = "Compile TypeScript to dist/ and bundle the client to dist/web"
 depends = ["deps"]
 run = 'cd "{{config_root}}" && pnpm run build'
 

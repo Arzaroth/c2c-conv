@@ -8,7 +8,7 @@
     "c2c": "dist/src/cli.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && tsc -p tsconfig.web.json && chmod +x dist/src/cli.js dist/bigtop/server.js",
+    "build": "tsc -p tsconfig.json && vite build && chmod +x dist/src/cli.js dist/bigtop/server.js",
     "check": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.web.json",
     "test": "pnpm run build && node --test \"dist/test/*.test.js\""
   },
@@ -17,7 +17,9 @@
   },
   "devDependencies": {
     "@types/node": "^26.4.1",
-    "typescript": "^7.0.2"
+    "@xterm/xterm": "5.5.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2"
   },
   "license": "MIT",
   "private": true

@@ -68,7 +68,8 @@ dependencies, so once it is built the whole thing runs with nothing installed.
 **Bozo client** (`web/`)
 Read-only xterm.js mirror plus a compose box and a keypad. The terminal has
 `disableStdin`, so the only way a bozo reaches the session is through the policy
-gate.
+gate. vite bundles the page, the client and xterm into `dist/web`, which is what
+both servers serve: a bozo's browser loads nothing from a CDN.
 
 ## Two channels, not one
 

@@ -37,14 +37,15 @@ code harder to map onto them.
 ## Requirements
 
 `tmux`, `node >= 20`, `pnpm`, and `claude` on PATH. Nothing ships as a
-runtime dependency: the only thing `pnpm install` fetches is TypeScript and the
-node type definitions, and neither is present by the time anything runs.
+runtime dependency: `pnpm install` fetches TypeScript, vite and xterm, the
+build folds xterm into the page, and none of them is present by the time
+anything runs. A bozo's browser loads nothing from a CDN.
 
 ## Build and install
 
 The source is TypeScript, so there is a compile step. `src/`, `bigtop/` and
-`test/` build to `dist/`; `web/client.ts` builds in place to the `client.js`
-the ringmaster serves to a browser. Both are gitignored.
+`test/` build to `dist/`; vite bundles `web/` to `dist/web`, which is what the
+ringmaster serves to a browser. `dist/` is gitignored.
 
 ```sh
 mise trust && mise run install     # pnpm install, build, then symlink ~/.local/bin/c2c

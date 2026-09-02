@@ -1,3 +1,6 @@
+import { Terminal } from '@xterm/xterm'
+import '@xterm/xterm/css/xterm.css'
+
 const params = new URLSearchParams(location.search)
 const token = params.get('t') || ''
 // Presenting this makes you the whiteface: the clown who runs the ring.

@@ -3,24 +3,18 @@
     "target": "es2022",
     "lib": ["es2022", "dom", "dom.iterable"],
 
-    // index.html loads /client.js with a plain script tag: no bundler, no
-    // import map. client.ts has no imports or exports, so TypeScript treats it
-    // as a global script and the emit stays loadable as one.
-    "module": "es2022",
+    // vite bundles the client, so client.ts is an ordinary module: xterm is
+    // imported rather than found on window, and esbuild does the emit. This
+    // config only type-checks it.
+    "module": "esnext",
     "moduleResolution": "bundler",
+    "noEmit": true,
+    "isolatedModules": true,
 
-    // Emitted next to the source, which is what the ringmaster serves.
-    "rootDir": "web",
-    "outDir": "web",
-
-    "types": [],
+    "types": ["vite/client"],
     "strict": true,
     "noImplicitOverride": true,
     "skipLibCheck": true
   },
-  "include": ["web/client.ts", "web/globals.d.ts", "types/**/*.d.ts"],
-
-  // Spelled out because an unset exclude also excludes outDir, and outDir here
-  // is the same directory the source lives in.
-  "exclude": ["node_modules", "dist"]
+  "include": ["web/client.ts", "vite.config.ts", "types/**/*.d.ts"]
 }
