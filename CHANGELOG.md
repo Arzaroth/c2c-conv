@@ -136,8 +136,3 @@ tag.
 - Every text injection waits for an idle prompt and is held, with the host
   told why, when the pane is in a dialog, in copy mode, or holding the host's
   own unsent draft.
-
-[Unreleased]: https://box.arzaroth.com/Arzaroth/c2c-conv/compare/v0.3.0...HEAD
-[0.3.0]: https://box.arzaroth.com/Arzaroth/c2c-conv/compare/v0.2.0...v0.3.0
-[0.2.0]: https://box.arzaroth.com/Arzaroth/c2c-conv/compare/v0.1.0...v0.2.0
-[0.1.0]: https://box.arzaroth.com/Arzaroth/c2c-conv/releases/tag/v0.1.0
