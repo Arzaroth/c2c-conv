@@ -7,6 +7,7 @@ import { PaneStream } from './panestream.js'
 import { TranscriptStream } from './transcript.js'
 import { Tunnel } from './tunnel.js'
 import { Policy, GALLERY, YOLO } from './policy.js'
+import { Outbox, type OutboxEvent, type SendOutcome } from './outbox.js'
 import { Whiteface, isWhitefaceCommand } from './whiteface.js'
 import { LocalTransport } from './transport/local.js'
 import { BigtopTransport } from './transport/bigtop.js'
@@ -14,6 +15,27 @@ import { controlSocket, ensureStateDir, metaFile, paneFile, statusFile } from '.
 
 const MAX_PANE_BYTES = Number(process.env.C2C_MAX_PANE_BYTES) || 8 * 1024 * 1024
 const MAX_HISTORY = 500
+
+// Why a message is sitting in the outbox instead of going in, in words the
+// person who sent it can act on.
+export function holdText(reason: HoldReason): string {
+  const reasons: Partial<Record<HoldReason, string>> = {
+    draft: 'the host has an unsent draft in the prompt box',
+    busy: 'the session is still working',
+    dialog: 'the session is waiting on a dialog',
+    'copy-mode': 'the pane is in tmux copy mode - press q to leave it',
+    unknown: 'the session is not at a prompt',
+    dead: 'the pane is gone',
+    error: 'the write failed',
+  }
+  return reasons[reason] ?? `the pane is ${reason}`
+}
+
+// c2c ctl cancel takes the id as it is printed, which is o-prefixed so an
+// outbox id is never mistaken for a pending one.
+function outboxId(id: number | string): number {
+  return Number(String(id).replace(/^o/i, ''))
+}
 
 interface RingmasterOptions {
   session: string
@@ -24,6 +46,7 @@ interface RingmasterOptions {
   tunnel?: boolean
   mode?: string
   whiteface?: string
+  outboxMode?: OutboxMode
 }
 
 export interface Bozo {
@@ -37,6 +60,7 @@ export class Ringmaster {
   #session: string
   #token: string
   #policy = new Policy()
+  #outbox: Outbox
   #bozos = new Map<string, Bozo>()
   #transports: Transport[] = []
   #local: LocalTransport
@@ -47,7 +71,6 @@ export class Ringmaster {
   #paneState: PaneState = 'unknown'
   #paneSize: PaneSize = { cols: 0, rows: 0 }
   #stateTimer: NodeJS.Timeout | undefined
-  #writes: Promise<unknown> = Promise.resolve()
   #transcript: TranscriptStream | null = null
   #history: TranscriptEntry[] = []
   #tunnel: Tunnel | null = null
@@ -55,8 +78,12 @@ export class Ringmaster {
   #wantsTunnel = false
   #whiteface: Whiteface<Bozo>
 
-  constructor({ session, port, host = '127.0.0.1', token, bigtop, tunnel = false, mode, whiteface }: RingmasterOptions) {
+  constructor(
+    { session, port, host = '127.0.0.1', token, bigtop, tunnel = false, mode, whiteface, outboxMode }:
+    RingmasterOptions,
+  ) {
     this.#wantsTunnel = tunnel
+    this.#outbox = new Outbox({ mode: outboxMode, send: (entry) => this.#deliver(entry) })
     this.#whiteface = new Whiteface<Bozo>(whiteface)
     if (mode) this.#policy.setMode(mode)
     this.#session = session
@@ -95,6 +122,10 @@ export class Ringmaster {
     return this.#policy
   }
 
+  get outbox(): Outbox {
+    return this.#outbox
+  }
+
   async start(): Promise<void> {
     await ensureStateDir(this.#session)
     await writeFile(paneFile(this.#session), '')
@@ -107,6 +138,7 @@ export class Ringmaster {
     await this.#pane.start()
 
     this.#policy.onEvent((event) => this.#onPolicyEvent(event))
+    this.#outbox.onEvent((event) => this.#onOutboxEvent(event))
 
     for (const transport of this.#transports) {
       transport.on('bozo', (channel: Channel) => this.#onGuest(channel))
@@ -169,6 +201,7 @@ export class Ringmaster {
 
   async stop(): Promise<void> {
     clearInterval(this.#stateTimer)
+    this.#outbox.stop()
     this.#tunnel?.stop()
     await this.#transcript?.stop()
     await tmux.stopPipe(this.#session)
@@ -304,6 +337,10 @@ export class Ringmaster {
       name: bozo.name,
       whiteface,
       pending: whiteface ? this.#policy.list() : undefined,
+      // The outbox is everyone's business: a bozo waiting on the queue should
+      // be able to see the queue. What is still held at the gate is not.
+      outbox: this.#outbox.list(),
+      outboxMode: this.#outbox.mode,
     })
     if (claim && !claim.ok) {
       bozo.channel.sendJson({ type: 'whiteface:refused', reason: claim.reason })
@@ -371,7 +408,6 @@ export class Ringmaster {
     if (msg.type === 'submit') {
       const result = this.#policy.submit({ text: msg.text, bozo: bozo.name })
       if (result.action === 'send') {
-        this.#inject(result.text)
         bozo.channel.sendJson({ type: 'accepted', text: result.text })
       } else if (result.action === 'queued') {
         bozo.channel.sendJson({ type: 'pending', id: result.id, text: msg.text, bozo: bozo.name })
@@ -388,36 +424,52 @@ export class Ringmaster {
     else await tmux.sendKey(this.#session, key)
   }
 
-  // Two writers on one pty interleave, so every text injection is serialised
-  // behind the last one. Keys deliberately skip this queue: they are single
-  // atomic keystrokes and should not wait out a text injection's timeout.
-  #inject(text: string): Promise<unknown> {
-    this.#writes = this.#writes
-      .then(() => this.#injectNow(text))
-      .catch((err) => {
-        // A bozo message disappearing without a trace is the worst possible
-        // failure here, so a broken write is loud on both sides.
-        console.error(`[inject] failed: ${err?.message ?? err}`)
-        this.#notifyHost(`c2c: FAILED to deliver a bozo message - ${err?.message ?? err}`)
-        this.#broadcastJson({ type: 'policy:held', state: 'error', text })
-        return false
-      })
-    return this.#writes
+  // Cleared to send is not the same as sent. Everything goes into the outbox,
+  // which is serial by construction, and only the head ever touches the pane -
+  // two writers on one pty interleave. Keys deliberately skip the queue: they
+  // are single atomic keystrokes and should not wait out a text injection.
+  #enqueue(text: string, bozo?: string): void {
+    if (this.#outbox.add({ text, bozo })) return
+    console.error('[outbox] full, dropped a message')
+    this.#notifyHost('c2c: the outbox is full - a message was dropped')
+    this.#broadcastJson({ type: 'policy:held', state: 'error', text })
   }
 
-  async #injectNow(text: string): Promise<boolean> {
-    console.log(`[inject] start: ${JSON.stringify(text.slice(0, 40))}`)
-    const state = await tmux.waitForPrompt(this.#session)
-    if (state !== 'prompt') return this.#hold(state, text)
+  // Called by the outbox for the head of the queue, and only for the head.
+  // A retry means "not yet", never "never": the message stays where it is and
+  // everybody can see why. Only a dead pane or a failed write loses one.
+  async #deliver(entry: OutboxEntry): Promise<SendOutcome> {
+    const through = this.#outbox.mode === 'through'
+    try {
+      // In drain, waiting here rather than spinning: the common block is a turn
+      // that takes minutes, and waitForPrompt already polls at a sane rate.
+      const state = through ? await tmux.paneState(this.#session) : await tmux.waitForPrompt(this.#session)
+      if (state === 'dead') return { ok: false, retry: false, reason: 'dead' }
+      // through types into a working session on purpose: claude queues what is
+      // typed mid-turn. A dialog or copy mode still swallows it, so those wait.
+      if (state !== 'prompt' && !(through && state === 'busy')) {
+        return { ok: false, retry: true, reason: state }
+      }
 
-    // The host typing is the other writer the queue cannot see.
-    const draft = await tmux.promptDraft(this.#session)
-    if (draft) return this.#hold('draft', text)
+      // The host typing is the other writer the queue cannot see.
+      const draft = await tmux.promptDraft(this.#session)
+      if (draft) return { ok: false, retry: true, reason: 'draft' }
 
-    await tmux.submit(this.#session, text)
-    await this.#settle()
-    console.log('[inject] delivered')
-    return true
+      console.log(`[outbox] o${entry.id} sending: ${JSON.stringify(entry.text.slice(0, 40))}`)
+      await tmux.submit(this.#session, entry.text)
+      // Even in through, the next message must not catch this one still in the
+      // box, or the two arrive spliced into one turn. The wait is shorter there
+      // because a busy session may not be rendering the box at all, and then
+      // there is nothing to see go empty.
+      await this.#settle(through ? 1500 : 5000)
+      console.log(`[outbox] o${entry.id} delivered`)
+      return { ok: true }
+    } catch (err) {
+      // A message someone was told was sent, that never arrives, is the one
+      // failure this design cannot afford. It is loud on both sides.
+      console.error(`[outbox] o${entry.id} failed: ${(err as Error)?.message ?? err}`)
+      return { ok: false, retry: false, reason: 'error' }
+    }
   }
 
   // send-keys returns once tmux has queued the keys, well before the session
@@ -440,22 +492,31 @@ export class Ringmaster {
     }
   }
 
-  #hold(reason: HoldReason, text: string): boolean {
-    const reasons: Partial<Record<HoldReason, string>> = {
-      draft: 'you have an unsent draft in the prompt box',
-      'copy-mode': 'the pane is in tmux copy mode - press q to leave it',
-      error: 'the write failed',
+  #onOutboxEvent(event: OutboxEvent): void {
+    if (event.type === 'changed') {
+      this.#broadcastJson({ type: 'outbox', entries: this.#outbox.list(), mode: this.#outbox.mode })
+      this.#writeStatusLine()
+      return
     }
-    const detail = reasons[reason] ?? `pane is ${reason}`
-    console.log(`[inject] held: ${reason}`)
-    this.#notifyHost(`c2c: HELD a bozo message, ${detail}`)
-    this.#broadcastJson({ type: 'policy:held', state: reason, text })
-    return false
+    if (event.type === 'waiting') {
+      this.#notifyHost(`c2c: o${event.entry.id} is waiting - ${holdText(event.reason)}`)
+    }
+    if (event.type === 'failed') {
+      this.#notifyHost(
+        `c2c: FAILED to deliver o${event.entry.id} from ${event.entry.bozo} - ${holdText(event.reason)}`,
+      )
+      this.#broadcastJson({ type: 'policy:held', state: event.reason, text: event.entry.text })
+    }
   }
 
   #onPolicyEvent(event: PolicyEvent): void {
+    // Both ways through the gate end in the same queue: yolo straight through,
+    // gallery once the host releases it.
+    if (event.type === 'sent') {
+      this.#enqueue(event.text, event.bozo)
+    }
     if (event.type === 'approved') {
-      this.#inject(event.text)
+      this.#enqueue(event.text, event.bozo)
       this.#notifyHost(`c2c: released #${event.id} from ${event.bozo}`)
     }
     if (event.type === 'denied') {
@@ -483,6 +544,7 @@ export class Ringmaster {
   // process spawned every couple of seconds.
   async #writeStatusLine(): Promise<void> {
     const pending = this.#policy.list().length
+    const outbox = this.#outbox.list().length
     const bozos = this.#bozos.size
     const mode = this.#policy.mode === YOLO ? '#[fg=#ff2e4c,bold]YOLO' : '#[fg=#ffd93d]gallery'
 
@@ -492,6 +554,11 @@ export class Ringmaster {
     ]
     if (pending) {
       parts.push(`#[fg=#ffd93d,bold]${pending} waiting#[default] #[fg=#9a90b0](prefix+a approve, prefix+d deny)`)
+    }
+    // Distinct from waiting on purpose: these are past the gate and only
+    // waiting on the session itself, so there is nothing for the host to do.
+    if (outbox) {
+      parts.push(`#[fg=#3ddc84,bold]${outbox} in the outbox`)
     }
 
     try {
@@ -553,8 +620,10 @@ export class Ringmaster {
           ok: true,
           session: this.#session,
           mode: this.#policy.mode,
+          outboxMode: this.#outbox.mode,
           bozos: [...this.#bozos.values()].map((g) => ({ id: g.id, name: g.name, via: g.origin })),
           pending: this.#policy.list(),
+          outbox: this.#outbox.list(),
           ...this.#links(),
           bigtop: this.#bigtop
             ? { url: this.#bigtop.bozoUrl, connected: this.#bigtop.connected, last: this.#bigtopStatus }
@@ -586,6 +655,18 @@ export class Ringmaster {
       case 'deny': {
         const entry = this.#policy.deny(Number(msg.id))
         return entry ? { ok: true, denied: entry } : { ok: false, error: `no pending message ${msg.id}` }
+      }
+      case 'outbox':
+        return { ok: true, outbox: this.#outbox.list() }
+      case 'cancel': {
+        const result = this.#outbox.cancel(outboxId(msg.id))
+        return result.ok ? { ok: true, cancelled: result.entry } : { ok: false, error: result.error }
+      }
+      case 'cancel-all':
+        return { ok: true, cancelled: this.#outbox.cancelAll() }
+      case 'bump': {
+        const result = this.#outbox.bump(outboxId(msg.id))
+        return result.ok ? { ok: true, bumped: result.entry } : { ok: false, error: result.error }
       }
       case 'approve-all':
         return { ok: true, approved: this.#policy.approveAll() }

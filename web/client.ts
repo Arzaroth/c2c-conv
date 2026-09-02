@@ -29,6 +29,7 @@ const el = {
   history: pick<HTMLDivElement>('history'),
   historyList: pick<HTMLDivElement>('history-list'),
   historyToggle: pick<HTMLButtonElement>('history-toggle'),
+  outbox: pick<HTMLDivElement>('outbox'),
 }
 
 // Not "history": this is a plain script, so a top-level binding by that name
@@ -214,6 +215,8 @@ function fit(): void {
 addEventListener('resize', rescale)
 
 const pending = new Map<number, { id: number; text: string; bozo?: string }>()
+let outbox: OutboxEntry[] = []
+let outboxMode: OutboxMode = 'drain'
 let mode: Mode = 'gallery'
 let whiteface = false
 let socket: WebSocket | null = null
@@ -277,6 +280,70 @@ function renderPending(): void {
   }
 }
 
+// Why the head of the outbox is not moving, in words rather than a pane state.
+const HELD: Partial<Record<HoldReason, string>> = {
+  draft: 'the host is typing',
+  unknown: 'the session is not at a prompt',
+  busy: 'the session is working',
+  dialog: 'a dialog is up',
+  'copy-mode': 'the pane is in copy mode',
+  dead: 'the pane is gone',
+  error: 'the write failed',
+}
+
+// Past the gate, waiting only on the session. Everyone sees this one: a bozo
+// who sent something is entitled to know where it is in the line.
+function renderOutbox(): void {
+  el.outbox.replaceChildren()
+  let place = 0
+
+  for (const entry of outbox) {
+    const going = entry.state === 'sending'
+    const held = !going && entry.reason
+    if (!going) place++
+
+    const row = document.createElement('div')
+    row.className = ['ticket', 'out', going ? 'sending' : '', held ? 'held' : '',
+      entry.bozo === bozoName ? 'mine' : ''].filter(Boolean).join(' ')
+
+    const num = document.createElement('span')
+    num.className = 'num'
+    num.textContent = `o${entry.id}`
+
+    const what = document.createElement('span')
+    what.className = 'what'
+    what.textContent = going
+      ? 'going in'
+      : held
+        ? `waiting - ${HELD[entry.reason!] ?? entry.reason}`
+        : place === 1 && outboxMode === 'drain'
+          ? 'next'
+          : `${place} in line`
+
+    const text = document.createElement('span')
+    text.className = 'said'
+    text.textContent = entry.text
+
+    row.append(num, what, text)
+
+    if (whiteface && !going) {
+      const spacer = document.createElement('span')
+      spacer.style.flex = '1'
+      const first = document.createElement('button')
+      first.className = 'ring-btn'
+      first.textContent = 'first'
+      first.onclick = () => send({ type: 'bump', id: entry.id })
+      const drop = document.createElement('button')
+      drop.className = 'ring-btn'
+      drop.textContent = 'drop'
+      drop.onclick = () => send({ type: 'cancel', id: entry.id })
+      row.append(spacer, first, drop)
+    }
+
+    el.outbox.appendChild(row)
+  }
+}
+
 function endpoint(): string {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
   const room = location.pathname.startsWith('/r/') ? decodeURIComponent(location.pathname.slice(3)) : null
@@ -324,6 +391,9 @@ function handle(msg: ServerMessage): void {
         pending.clear()
         for (const entry of msg.pending) pending.set(entry.id, entry)
       }
+      outbox = msg.outbox ?? []
+      outboxMode = msg.outboxMode ?? 'drain'
+      renderOutbox()
       setMode(msg.mode)
       if (whiteface) {
         el.hint.innerHTML = 'You are the <b>whiteface</b>. You run the ring: release, drop, switch mode.'
@@ -380,10 +450,20 @@ function handle(msg: ServerMessage): void {
       pending.delete(msg.id)
       renderPending()
       break
+    case 'outbox':
+      outbox = msg.entries
+      outboxMode = msg.mode
+      renderOutbox()
+      break
+    case 'accepted':
+      el.hint.innerHTML = outboxMode === 'through'
+        ? 'In. If the session is working, claude queues it.'
+        : 'In the <b>outbox</b>. It goes in when the session is free.'
+      break
+    // Only a message the outbox gave up on gets here now. Anything merely
+    // blocked is sitting in the outbox with its reason on it.
     case 'policy:held':
-      el.hint.innerHTML = msg.state === 'draft'
-        ? 'Held: the host has an unsent draft in the prompt box.'
-        : `Held: the session is <b>${msg.state}</b>. Try again once it is idle.`
+      el.hint.innerHTML = `Not delivered: ${HELD[msg.state] ?? msg.state}.`
       break
     case 'notice':
       term.write(`\r\n\x1b[38;5;246m[c2c] ${msg.text}\x1b[39m\r\n`)

@@ -22,6 +22,8 @@ export class BozoLink extends EventEmitter {
   state: PaneState = 'unknown'
   screen = ''
   history: TranscriptEntry[] = []
+  outbox: OutboxEntry[] = []
+  outboxMode: OutboxMode = 'drain'
   connected = false
 
   constructor({ url, name = 'zavatta' }: { url: string; name?: string }) {
@@ -75,6 +77,12 @@ export class BozoLink extends EventEmitter {
     if (msg.type === 'hoink') {
       this.mode = msg.mode
       this.state = msg.state ?? 'unknown'
+      this.outbox = msg.outbox ?? []
+      this.outboxMode = msg.outboxMode ?? 'drain'
+    }
+    if (msg.type === 'outbox') {
+      this.outbox = msg.entries
+      this.outboxMode = msg.mode
     }
     if (msg.type === 'policy:mode') this.mode = msg.mode
     if (msg.type === 'state') this.state = msg.state
@@ -282,22 +290,29 @@ export class McpServer {
     }
 
     if (name === 'c2c_status') {
+      const waiting = link.outbox.length
       return [
         `connected: ${link.connected}`,
         `mode: ${link.mode}${link.mode === 'gallery' ? ' (your messages wait for the host)' : ' (your messages go straight in)'}`,
         `session: ${link.state}`,
+        `outbox: ${waiting ? `${waiting} message${waiting === 1 ? '' : 's'} waiting to go in` : 'empty'} (${link.outboxMode})`,
         `turns known: ${link.history.length}`,
       ].join('\n')
     }
 
+
     if (name === 'c2c_send') {
       if (!args.text) throw new Error('text is required')
       const answer = await link.submit(args.text)
-      if (answer.type === 'accepted') return 'Sent into the session.'
+      if (answer.type === 'accepted') {
+        return link.outboxMode === 'through'
+          ? 'Sent. If the session is mid-turn, claude queues it there.'
+          : 'In the outbox. It goes into the session as soon as it is free, and nothing goes in ahead of it.'
+      }
       if (answer.type === 'pending') return `Queued as #${answer.id}. It reaches the session when the host releases it.`
       if (answer.type === 'rejected') return `Not sent: ${answer.reason}.`
       if (answer.type === 'policy:held') {
-        return `Held: the session is ${answer.state}. Try again once it is ready.`
+        return `Not delivered: the session is ${answer.state}.`
       }
       return 'Sent.'
     }

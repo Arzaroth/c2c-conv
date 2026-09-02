@@ -188,6 +188,16 @@
     font-variant-numeric: tabular-nums;
   }
   .ticket .what { color: var(--muted); }
+  .ticket .said { overflow-wrap: anywhere; }
+
+  /* Past the gate and only waiting on the session, which is a different thing
+     from waiting on the host: nothing here needs anyone to do anything. */
+  .ticket.out { border-style: solid; border-color: var(--line); }
+  .ticket.out .num { color: var(--wig-4); }
+  .ticket.out.mine { border-color: #1d5c37; }
+  .ticket.out.sending { border-color: var(--wig-4); }
+  .ticket.out.sending .what { color: var(--wig-4); }
+  .ticket.out.held .what { color: var(--face); }
 
   .tab {
     cursor: pointer;
@@ -396,6 +406,7 @@
       <button type="button" class="go" data-key="Enter">Enter</button>
       <button type="button" data-key="Escape">Esc</button>
     </div>
+    <div id="outbox"></div>
     <div id="pending"></div>
     <form id="composer">
       <input type="text" id="text" placeholder="Say something to the session..." autocomplete="off">

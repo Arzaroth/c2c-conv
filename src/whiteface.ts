@@ -6,6 +6,7 @@ import { timingSafeEqualString } from './secret.js'
 // host's alone.
 export const WHITEFACE_COMMANDS = new Set<string>([
   'list', 'mode', 'approve', 'deny', 'approve-next', 'deny-next', 'approve-all', 'deny-all',
+  'outbox', 'cancel', 'cancel-all', 'bump',
 ])
 
 // Set.has takes a string and gives back a boolean, which leaves the caller

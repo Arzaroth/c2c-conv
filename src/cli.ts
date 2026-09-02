@@ -11,6 +11,7 @@ import { randomBytes } from 'node:crypto'
 import * as tmux from './tmux.js'
 import { Ringmaster } from './ringmaster.js'
 import { GALLERY, YOLO } from './policy.js'
+import { OUTBOX_MODES } from './outbox.js'
 import { controlSocket, ensureStateDir, metaFile, stateDir, statusFile } from './paths.js'
 import { version, versionReport } from './version.js'
 
@@ -35,6 +36,7 @@ interface Options {
   token?: string
   url?: string
   name?: string
+  outbox?: string
 }
 
 function parseArgs(argv: string[]): { opts: Options; rest: string[]; passthrough: string[] | null } {
@@ -63,6 +65,7 @@ function parseArgs(argv: string[]): { opts: Options; rest: string[]; passthrough
     else if (arg === '--token') opts.token = argv[++i]
     else if (arg === '--url') opts.url = argv[++i]
     else if (arg === '--name') opts.name = argv[++i]
+    else if (arg === '--outbox') opts.outbox = argv[++i]
     else rest.push(arg)
   }
   return { opts, rest, passthrough }
@@ -116,6 +119,11 @@ async function cmdHost({ opts, passthrough }: { opts: Options; passthrough: stri
     process.exit(1)
   }
 
+  if (opts.outbox && !OUTBOX_MODES.includes(opts.outbox as OutboxMode)) {
+    console.error(`--outbox must be drain or through, not "${opts.outbox}"`)
+    process.exit(1)
+  }
+
   // Running a second shared session hits this every time, since the port
   // defaults. Catching it here beats starting a tmux session, failing, killing
   // it again and pointing at a log.
@@ -155,6 +163,7 @@ async function cmdHost({ opts, passthrough }: { opts: Options; passthrough: stri
       C2C_TUNNEL: opts.tunnel ? '1' : '',
       C2C_MODE: opts.mode ?? '',
       C2C_WHITEFACE: whiteface,
+      C2C_OUTBOX: opts.outbox ?? '',
     },
   })
   child.unref()
@@ -189,11 +198,18 @@ async function cmdHost({ opts, passthrough }: { opts: Options; passthrough: stri
     console.log('')
   }
 
+  console.log(
+    opts.outbox === 'through'
+      ? '  outbox      through - messages are typed into a working session, and claude queues them'
+      : '  outbox      drain - one message at a time, each waits for the last turn to finish'
+  )
+  console.log('')
+
   console.log('  in the session, without leaving it:')
   console.log('    prefix + a  release the next waiting message')
   console.log('    prefix + d  drop it')
   console.log('    prefix + y  toggle gallery / yolo')
-  console.log('  the status bar shows mode, bozos, and what is waiting.')
+  console.log('  the status bar shows mode, bozos, what is waiting and what is going in.')
   console.log('')
 
   if (opts.mode === YOLO && !opts.attach) {
@@ -395,6 +411,7 @@ async function cmdRingmaster(): Promise<void> {
     tunnel: process.env.C2C_TUNNEL === '1',
     mode: process.env.C2C_MODE,
     whiteface: process.env.C2C_WHITEFACE,
+    outboxMode: (process.env.C2C_OUTBOX || undefined) as OutboxMode | undefined,
   })
   await ringmaster.start()
   console.log(`[ringmaster] listening on ${ringmaster.url}`)
@@ -425,11 +442,15 @@ function attach(session: string): Promise<void> {
   })
 }
 
+const CTL_USAGE =
+  'usage: c2c ctl <status|list|mode gallery|mode yolo|approve ID|deny ID|approve-all|deny-all' +
+  '|outbox|cancel ID|cancel-all|bump ID>'
+
 async function cmdCtl({ opts, rest }: { opts: Options; rest: string[] }): Promise<void> {
   const [sub, ...args] = rest
   const message = buildControlMessage(sub, args)
   if (!message) {
-    console.error('usage: c2c ctl <status|list|mode gallery|mode yolo|approve ID|deny ID|approve-all|deny-all>')
+    console.error(CTL_USAGE)
     process.exit(1)
   }
   const reply = await control(opts.session, message)
@@ -446,11 +467,15 @@ function buildControlMessage(sub: string | undefined, args: string[]): ControlRe
     case 'deny-all':
     case 'approve-next':
     case 'deny-next':
+    case 'outbox':
+    case 'cancel-all':
       return { cmd: sub }
     case 'mode':
       return { cmd: 'mode', mode: MODE_ALIASES[args[0]] ?? args[0] }
     case 'approve':
     case 'deny':
+    case 'cancel':
+    case 'bump':
       return { cmd: sub, id: args[0] }
     default:
       return null
@@ -483,6 +508,15 @@ function printStatus(reply: ControlReply): void {
   } else {
     console.log('pending  none')
   }
+  if (reply.outbox.length) {
+    console.log(`outbox   ${reply.outboxMode}`)
+    for (const entry of reply.outbox) {
+      const why = entry.state === 'sending' ? 'going in' : entry.reason ? `waiting: ${entry.reason}` : 'waiting'
+      console.log(`  o${entry.id}  ${entry.bozo}: ${entry.text}  (${why})`)
+    }
+  } else {
+    console.log(`outbox   empty (${reply.outboxMode})`)
+  }
 }
 
 async function cmdStop({ opts }: { opts: Options }): Promise<void> {
@@ -498,15 +532,20 @@ function usage(): void {
 
 usage:
   c2c host [-s NAME] [-p PORT] [--bind ADDR] [--cwd DIR] [--no-attach] [--tunnel]
-           [--yolo | --mode gallery|yolo]
+           [--yolo | --mode gallery|yolo] [--outbox drain|through]
            [--bigtop wss://HOST] [--room NAME] [--token SECRET] [-- <claude args>]
   c2c attach [-s NAME]
   c2c invite [-s NAME]
-  c2c ctl <status|list|mode gallery|mode yolo|approve ID|deny ID|approve-all|deny-all>
+  c2c ctl <status|list|mode gallery|mode yolo|approve ID|deny ID|approve-all|deny-all
+           |outbox|cancel ID|cancel-all|bump ID>
   c2c stop [-s NAME]
   c2c version | --version
   c2c bigtop [-p PORT] [--bind ADDR]
   c2c zavatta [-s NAME] [--url URL] [--name WHO]  join a session as an AI bozo (MCP)
+
+the outbox:
+  drain (default)  one message at a time, each waiting for the last turn to end
+  through          type into a working session and let claude queue it itself
 
 transports:
   loopback + ssh   default, nothing to deploy

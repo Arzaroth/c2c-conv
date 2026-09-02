@@ -25,6 +25,22 @@ interface PendingEntry {
   at: number
 }
 
+// What the outbox does with a message once it is cleared to go: drain waits for
+// the session to be idle and sends one at a time, through types into a busy
+// pane and lets claude queue it.
+type OutboxMode = 'drain' | 'through'
+
+// sending means it is going down the wire right now, which is also why it can
+// no longer be cancelled. reason says why a waiting one is not moving.
+interface OutboxEntry {
+  id: number
+  text: string
+  bozo?: string
+  at: number
+  state: 'waiting' | 'sending'
+  reason?: HoldReason
+}
+
 interface CursorPosition {
   x: number
   y: number
@@ -62,15 +78,19 @@ type PolicyEvent =
 type ControlCommand =
   | 'status' | 'list' | 'mode' | 'stop'
   | 'approve' | 'deny' | 'approve-next' | 'deny-next' | 'approve-all' | 'deny-all'
+  | 'outbox' | 'cancel' | 'cancel-all' | 'bump'
 
 // status carries the token and stop ends the session: those two stay with
 // c2c ctl and are never reachable from a browser.
 type WhitefaceCommand = Exclude<ControlCommand, 'status' | 'stop'>
 
 type ControlRequest =
-  | { cmd: 'status' | 'list' | 'stop' | 'approve-next' | 'deny-next' | 'approve-all' | 'deny-all' }
+  | {
+      cmd: 'status' | 'list' | 'stop' | 'approve-next' | 'deny-next' | 'approve-all' | 'deny-all'
+        | 'outbox' | 'cancel-all'
+    }
   | { cmd: 'mode'; mode: string }
-  | { cmd: 'approve' | 'deny'; id: number | string }
+  | { cmd: 'approve' | 'deny' | 'cancel' | 'bump'; id: number | string }
 
 // The three links a browser might be handed. Spread into both the metadata
 // file and a status reply, so they are described once.
@@ -84,8 +104,10 @@ interface StatusReply extends SessionLinks {
   ok: true
   session: string
   mode: Mode
+  outboxMode: OutboxMode
   bozos: { id: string; name: string; via: string }[]
   pending: PendingEntry[]
+  outbox: OutboxEntry[]
   bigtop: { url: string; connected: boolean; last: BigtopStatus | null } | null
 }
 
@@ -95,6 +117,9 @@ interface ActionReply {
   pending?: number | PendingEntry[]
   approved?: PendingEntry | PendingEntry[] | null
   denied?: PendingEntry | PendingEntry[] | null
+  outbox?: OutboxEntry[]
+  cancelled?: OutboxEntry | OutboxEntry[] | null
+  bumped?: OutboxEntry | null
   stopping?: boolean
 }
 
@@ -123,6 +148,8 @@ type ServerMessage =
       name: string
       whiteface: boolean
       pending?: PendingEntry[]
+      outbox: OutboxEntry[]
+      outboxMode: OutboxMode
     }
   | { type: 'screen'; data: string; cursor: CursorPosition }
   | { type: 'state'; state: PaneState }
@@ -137,6 +164,10 @@ type ServerMessage =
   // own reply so the browser needs no second vocabulary.
   | ({ type: 'control'; cmd: string } & ControlReply)
   | { type: 'policy:held'; state: HoldReason; text: string }
+  // The whole line every time it changes rather than a delta per entry: it is
+  // fifty short strings at the very most, and a queue that disagrees with the
+  // one the host is looking at is worse than the bytes are worth.
+  | { type: 'outbox'; entries: OutboxEntry[]; mode: OutboxMode }
   | { type: 'notice'; text: string }
   | { type: 'bye'; text: string }
   | { type: 'transcript'; entry: TranscriptEntry }
@@ -156,8 +187,9 @@ type BozoMessage =
   // The whiteface half of the vocabulary, shaped like a control request minus
   // the cmd key, which the ringmaster fills in from the type.
   | { type: 'list' | 'approve-next' | 'deny-next' | 'approve-all' | 'deny-all' }
+  | { type: 'outbox' | 'cancel-all' }
   | { type: 'mode'; mode: Mode | 'toggle' }
-  | { type: 'approve' | 'deny'; id: number | string }
+  | { type: 'approve' | 'deny' | 'cancel' | 'bump'; id: number | string }
 
 /* ── transports ─────────────────────────────────────────────────────────── */
 
