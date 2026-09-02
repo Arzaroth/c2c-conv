@@ -1,15 +1,22 @@
 # Deploying the bigtop
 
 The bigtop is the only piece meant to live on a server. It is a single node
-file with no dependencies, it binds loopback, and it holds no state worth
-persisting: rooms exist only while a host is connected.
+file with no runtime dependencies, it binds loopback, and it holds no state
+worth persisting: rooms exist only while a host is connected.
+
+It is compiled from TypeScript, so a checkout has to be built before it will
+run - the unit points at `dist/bigtop/server.js`, and the browser client the
+bigtop serves is built from `web/client.ts` by the same step.
 
 ```sh
 useradd --system --home /opt/c2c-conv c2c
 git clone <repo> /opt/c2c-conv
+cd /opt/c2c-conv && npm ci && npm run build
 install -m644 /opt/c2c-conv/deploy/c2c-bigtop.service /etc/systemd/system/
 systemctl enable --now c2c-bigtop
 ```
+
+Rebuild on every update: `git pull && npm ci && npm run build && systemctl restart c2c-bigtop`.
 
 Then put TLS in front of it with [Caddyfile](Caddyfile) or
 [nginx.conf](nginx.conf), and point hosts at it:

@@ -38,13 +38,13 @@ spectator`, `mode yolo`) so anything already written against them keeps working.
 
 ## Components
 
-**tmux session** (`src/tmux.js`)
+**tmux session** (`src/tmux.ts`)
 Owns the `claude` process. Runs on a dedicated tmux server (`-L c2c`) so it never
 collides with the host's own tmux. Output leaves via `pipe-pane` into a file;
 input enters via `send-keys -l --`, which sends text literally so bozo input can
 never be interpreted as a tmux key name.
 
-**Ringmaster** (`src/ringmaster.js`)
+**Ringmaster** (`src/ringmaster.ts`)
 A detached node process. Tails the pane file, hands raw bytes to every active
 transport, holds the policy state, and exposes a unix control socket for the host.
 It knows nothing about how a bozo arrived.
@@ -56,14 +56,14 @@ every bozo in the room over that one socket. Both emit `bozo` channels with the
 same shape, and both expose `broadcastBinary` so pane bytes cross an uplink once
 rather than once per bozo.
 
-**Policy** (`src/policy.js`)
+**Policy** (`src/policy.ts`)
 The mode ladder. `gallery` (default) queues bozo submissions for host
 approval; `ring` injects them immediately. Mode lives only in the ringmaster and is
 only mutable through the host's control socket, so a bozo can never self-promote.
 
-**Websocket** (`src/ws.js`)
-RFC 6455 server implemented directly on `node:http` upgrades. Zero dependencies,
-so the whole thing runs with nothing installed.
+**Websocket** (`src/ws.ts`)
+RFC 6455 server implemented directly on `node:http` upgrades. No runtime
+dependencies, so once it is built the whole thing runs with nothing installed.
 
 **Bozo client** (`web/`)
 Read-only xterm.js mirror plus a compose box and a keypad. The terminal has
@@ -115,7 +115,7 @@ source of truth; the transcript is optional enrichment.
 
 ## The transcript stream
 
-`src/transcript.js` tails the session's JSONL and gives bozos a readable
+`src/transcript.ts` tails the session's JSONL and gives bozos a readable
 conversation alongside the mirror. It solves the one thing the mirror cannot: a
 bozo joining late sees only the current screen, while the transcript has every
 turn from the start.
@@ -285,7 +285,7 @@ what unit tests can reach.
 But every bug in this project that cost real time lived in the tmux
 integration, not in pure logic: text injected into copy mode wedging the write
 queue, bozo text being read as a tmux key, bindings pointing at the wrong
-session. So `test/tmux.integration.test.js` drives a real tmux server running a
+session. So `test/tmux.integration.test.ts` drives a real tmux server running a
 plain shell and pins those specific failures. Each of its guards was checked by
 reintroducing the bug and confirming the test goes red - one of them did not,
 and was rewritten until it did. tmux falls back to literal text for anything it
@@ -321,7 +321,7 @@ tool, so an agent still cannot release its own messages.
 Zavatta is the MCP server: a human bozo is anonymous, and the one that is a
 program gets a proper clown's name.
 
-`src/mcp.js` is an MCP server that joins a session over the ordinary bozo
+`src/zavatta.ts` is an MCP server that joins a session over the ordinary bozo
 protocol. The ringmaster does not know or care that this bozo is a program, so
 the gate applies unchanged.
 

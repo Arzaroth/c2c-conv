@@ -36,23 +36,32 @@ code harder to map onto them.
 
 ## Requirements
 
-`tmux`, `node >= 20`, and `claude` on PATH. No dependencies to install.
+`tmux`, `node >= 20`, and `claude` on PATH. Nothing ships as a runtime
+dependency: the only thing `npm install` fetches is TypeScript and the node
+type definitions, and neither is present by the time anything runs.
 
 ## Build and install
 
-There is nothing to build: no dependencies, no compile step. Installing means
-putting `c2c` on your PATH.
+The source is TypeScript, so there is a compile step. `src/`, `bigtop/` and
+`test/` build to `dist/`; `web/client.ts` builds in place to the `client.js`
+the ringmaster serves to a browser. Both are gitignored.
 
 ```sh
-mise trust && mise run install     # symlinks ~/.local/bin/c2c
+npm install                        # typescript and @types/node, dev only
+mise trust && mise run install     # builds, then symlinks ~/.local/bin/c2c
 c2c --version                      # 0.1.0 (38c6eba), and which checkout it points at
 ```
 
-`mise tasks` lists the rest: `test`, `check`, `host`, `local`, `bigtop`,
-`zavatta`, `status`, `invite`, `stop`, `uninstall`.
+`mise tasks` lists the rest: `build`, `test`, `check`, `host`, `local`,
+`bigtop`, `zavatta`, `status`, `invite`, `stop`, `uninstall`, `docker:build`,
+`docker:host`. Everything that runs code builds first, so there is no
+stale-`dist/` trap.
 
-Without mise, `ln -s "$PWD/src/cli.js" ~/.local/bin/c2c`, or `npm link`, or just
-run `node src/cli.js` wherever the docs say `c2c`.
+`mise run check` type-checks both builds without emitting. There is no separate
+lint step: the compiler is the lint step.
+
+Without mise, `npm run build` then `ln -s "$PWD/dist/src/cli.js" ~/.local/bin/c2c`,
+or `npm link`, or just run `node dist/src/cli.js` wherever the docs say `c2c`.
 
 Because it is normally a symlink into a checkout, `c2c --version` reports the
 commit as well as the release, and marks it `-dirty` when the working tree has
@@ -110,7 +119,7 @@ tunnel dies with the session rather than outliving it.
 
 The bigtop rung has both sides dial *out*, so it works when neither machine can
 reach the other. Run one anywhere with `c2c bigtop`, or
-`node bigtop/server.js --port 8080`. Your bozo opens
+`node dist/bigtop/server.js --port 8080`. Your bozo opens
 `https://bigtop.example.com/r/standup?t=<token>` and installs nothing.
 
 Details and wire protocol in [docs/TRANSPORTS.md](docs/TRANSPORTS.md).
@@ -271,7 +280,7 @@ A second agent can join as a bozo, under exactly the same gate as a person:
 
 ```jsonc
 // .mcp.json, or wherever your client keeps MCP servers
-{ "mcpServers": { "c2c": { "command": "node", "args": ["/path/to/c2c-conv/src/cli.js", "mcp"] } } }
+{ "mcpServers": { "c2c": { "command": "node", "args": ["/path/to/c2c-conv/dist/src/cli.js", "mcp"] } } }
 ```
 
 It gets five tools: `c2c_screen` (the session right now, as plain text),

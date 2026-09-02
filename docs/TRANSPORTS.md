@@ -82,7 +82,7 @@ TCP, so it never exercised that.
 For when neither side can reach the other: both dial *out* to a bigtop.
 
 ```sh
-node bigtop/server.js --port 8080          # somewhere both sides can reach
+node dist/bigtop/server.js --port 8080    # somewhere both sides can reach
 c2c host --bigtop wss://bigtop.example.com --room standup
 ```
 
@@ -118,7 +118,7 @@ Host connects to `/uplink?room=R&t=T`:
 
 Bozos connect to `/bozo?room=R&t=T` and speak the ringmaster's own protocol
 unchanged: the bigtop unwraps envelopes in both directions. That is deliberate -
-`web/client.js` has no idea whether it is talking to a local ringmaster or a bigtop,
+`web/client.ts` has no idea whether it is talking to a local ringmaster or a bigtop,
 so there is exactly one client to maintain.
 
 ### Room rules
@@ -166,10 +166,10 @@ the only version that is provable.
 
 ### Deploying
 
-Zero dependencies, so it is a single file plus `src/ws.js` and `web/`:
+No runtime dependencies, so it is a single file plus `src/ws.ts` and `web/`:
 
 ```sh
-node bigtop/server.js --port 8080 --bind 0.0.0.0
+node dist/bigtop/server.js --port 8080 --bind 0.0.0.0
 ```
 
 `GET /healthz` returns `{"ok":true,"rooms":N}`. Put it behind TLS and use `wss://`

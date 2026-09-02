@@ -11,16 +11,14 @@ two.
 
 ## Drift and small fixes
 
-- [ ] `docs/ARCHITECTURE.md` still calls the MCP server `src/mcp.js`. It is
-      `src/zavatta.js`.
 - [ ] `docs/TRANSPORTS.md` says 16 bozos per room, twice. `MAX_BOZOS` in
-      `src/policy.js` is 30, and the bigtop imports it.
-- [ ] `resolvePublic()` lives in `bigtop/server.js` and is exported, but
-      `src/transport/local.js:81` still strips `../` prefixes - the approach
+      `src/policy.ts` is 30, and the bigtop imports it.
+- [ ] `resolvePublic()` lives in `bigtop/server.ts` and is exported, but
+      `src/transport/local.ts` still strips `../` prefixes - the approach
       TRANSPORTS.md itself calls guesswork next to containment being provable.
       The URL parser makes it hard to reach today, which is not the same as it
       being right. One helper, both transports.
-- [ ] `test/tmux.integration.test.js` fails with `spawn tmux ENOENT` when tmux
+- [ ] `test/tmux.integration.test.ts` fails with `spawn tmux ENOENT` when tmux
       is absent rather than skipping. That is 9 red tests on any machine that
       does not have it, which is every CI runner by default.
 
@@ -30,13 +28,13 @@ two.
 `web/vendor/`, and add a workflow that installs tmux and runs the whole suite,
 integration tests included.
 
-*Why.* "No dependencies to install" is the project's own selling point while the
+*Why.* "No runtime dependencies" is the project's own selling point while the
 client pulls ~300KB from a CDN on load. A bozo on a tailnet with no route out, a
 LAN demo on a locked-down network, or the container rung behind an egress policy
 all get a blank mirror, and nothing on screen says why. The Dockerfile is already
 a working CI substrate: it has node, tmux and claude in it.
 
-*Touches:* `web/index.html`, `web/vendor/`, `test/tmux.integration.test.js`,
+*Touches:* `web/index.html`, `web/vendor/`, `test/tmux.integration.test.ts`,
 new `.github/workflows/`, `Dockerfile`.
 
 ## Attribution and an audit log
@@ -52,12 +50,12 @@ the only record that anything happened, and `ringmaster.log` is not a record, it
 is a debug stream.
 
 *Risk.* Do not try to reconstruct this from the transcript JSONL. `normalize()`
-in `src/policy.js` collapses whitespace before injection, so matching a user turn
+in `src/policy.ts` collapses whitespace before injection, so matching a user turn
 back to a submission is fuzzy. Log at the ringmaster, where the attribution is
 already in hand.
 
-*Touches:* `src/policy.js` events, `src/ringmaster.js`, `src/transcript.js`,
-`web/client.js`.
+*Touches:* `src/policy.ts` events, `src/ringmaster.ts`, `src/transcript.ts`,
+`web/client.ts`.
 
 ## The heckle channel
 
@@ -75,7 +73,7 @@ count on the status line, or accept that the whiteface panel is where the host
 reads it - which is honest now that the container rung makes headless the normal
 way to run one.
 
-*Touches:* `src/ringmaster.js`, `web/client.js`, `web/index.html`, `src/tmux.js`.
+*Touches:* `src/ringmaster.ts`, `web/client.ts`, `web/index.html`, `src/tmux.ts`.
 
 ## `c2c resume`
 
@@ -88,8 +86,8 @@ leaves a live claude session with no way back other than `c2c stop`. The
 long-lived sessions are exactly the `--tunnel` and `--bigtop` ones, where losing
 the URL costs the most.
 
-*Touches:* `src/ringmaster.js` (`#writeMeta`, `start`), `src/cli.js`,
-`src/paths.js`, `src/whiteface.js`.
+*Touches:* `src/ringmaster.ts` (`#writeMeta`, `start`), `src/cli.ts`,
+`src/paths.ts`, `src/whiteface.ts`.
 
 ## Per-bozo trust, not one switch
 
@@ -100,12 +98,12 @@ and `MAX_BOZOS` is 30. That is fine for a pair session and wrong for anything
 with an audience, which is what thirty implies. The queue entries already carry
 `bozo` and `#bozos` is a keyed map, so the state has somewhere to live.
 
-*Touches:* `src/policy.js`, `src/ringmaster.js` (`#onGuestMessage`),
-`c2c ctl mode <bozo>`, `web/client.js`.
+*Touches:* `src/policy.ts`, `src/ringmaster.ts` (`#onGuestMessage`),
+`c2c ctl mode <bozo>`, `web/client.ts`.
 
 ## Scrollback, as a snapshot mode
 
-**M.** `web/client.js` sets `scrollback: 0` deliberately. The way in is not
+**M.** `web/client.ts` sets `scrollback: 0` deliberately. The way in is not
 xterm scrollback but a read-only view built from `capture-pane -p -S -<N>`,
 toggled like the history tab.
 
@@ -117,7 +115,7 @@ are.
 against a fixed grid. A scrollback view has to be a separate surface, never the
 live one, or every redraw after it lands off by rows.
 
-*Touches:* `src/tmux.js`, `src/ringmaster.js`, `web/client.js`.
+*Touches:* `src/tmux.ts`, `src/ringmaster.ts`, `web/client.ts`.
 
 ## `--cols` and `--rows`
 
@@ -128,7 +126,7 @@ Fitting automatically to the smallest connected bozo is the larger version and
 needs `window-size manual`, because tmux otherwise resizes to whatever attaches.
 Worth doing only once someone complains.
 
-*Touches:* `src/tmux.js`, `src/cli.js`.
+*Touches:* `src/tmux.ts`, `src/cli.ts`.
 
 ## Session replay
 
@@ -143,8 +141,8 @@ product is, from "share a session" to "share what happened".
 on screen, secrets included. Retention has to be opt-in, and rotation at 8MB
 currently discards history rather than rolling it.
 
-*Touches:* `src/panestream.js`, `src/ringmaster.js` (`#rotatePaneFile`),
-`src/cli.js`, `web/`.
+*Touches:* `src/panestream.ts`, `src/ringmaster.ts` (`#rotatePaneFile`),
+`src/cli.ts`, `web/`.
 
 ## Order
 
