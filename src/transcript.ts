@@ -100,9 +100,14 @@ function plainText(content: unknown): string {
     .join('\n\n')
 }
 
+// How often the descriptor is re-read to see whether claude has moved on. It
+// only has to be faster than somebody noticing the history has gone quiet.
+const FOLLOW_MS = 3000
+
 export class TranscriptStream extends EventEmitter {
   #session: string
   #stream: PaneStream | null = null
+  #sessionId: string | null = null
   #buffer = ''
   #timer: NodeJS.Timeout | undefined
   #stopped = false
@@ -120,18 +125,7 @@ export class TranscriptStream extends EventEmitter {
       this.#retry()
       return
     }
-
-    const path = transcriptPath(descriptor)
-    try {
-      await readdir(join(path, '..'))
-      this.#stream = new PaneStream(path)
-      this.#stream.on('data', (chunk) => this.#feed(chunk))
-      this.#stream.on('error', () => {})
-      await this.#stream.start()
-      this.emit('located', { path, sessionId: descriptor.sessionId })
-    } catch {
-      this.#retry()
-    }
+    await this.#attach(descriptor)
   }
 
   async stop(): Promise<void> {
@@ -139,6 +133,48 @@ export class TranscriptStream extends EventEmitter {
     clearTimeout(this.#timer)
     await this.#stream?.stop()
     this.#stream = null
+  }
+
+  async #attach(descriptor: SessionDescriptor): Promise<void> {
+    const path = transcriptPath(descriptor)
+    try {
+      await readdir(join(path, '..'))
+      const stream = new PaneStream(path)
+      stream.on('data', (chunk) => this.#feed(chunk))
+      stream.on('error', () => {})
+      await stream.start()
+      this.#stream = stream
+      this.#sessionId = descriptor.sessionId
+      this.#buffer = ''
+      this.emit('located', { path, sessionId: descriptor.sessionId })
+      this.#follow()
+    } catch {
+      this.#retry()
+    }
+  }
+
+  // /clear leaves the pane, the pid and the descriptor where they are and writes
+  // a new session id into it. A stream pinned to the file it found at startup
+  // then goes quiet for good, with nothing on any surface saying why.
+  #follow(): void {
+    if (this.#stopped) return
+    clearTimeout(this.#timer)
+    this.#timer = setTimeout(async () => {
+      if (this.#stopped) return
+      const descriptor = await locate(this.#session)
+      if (!descriptor?.sessionId || descriptor.sessionId === this.#sessionId) {
+        this.#follow()
+        return
+      }
+      await this.#stream?.stop()
+      this.#stream = null
+      this.#sessionId = null
+      // What came before is not in the session's context any more, so it is
+      // not the conversation: a bozo reading it would be reading claude's mind
+      // wrong.
+      this.emit('reset')
+      await this.#attach(descriptor)
+    }, FOLLOW_MS)
   }
 
   #retry(): void {
