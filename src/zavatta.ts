@@ -11,6 +11,48 @@ export function stripAnsi(text: unknown): string {
   return String(text).replace(ANSI, '')
 }
 
+// What a wait is watching for. idle is the one an agent wants after sending:
+// the session is at a prompt and nothing of its own is still on the way in.
+export const WAIT_FOR = ['idle', 'dialog', 'reply', 'lane', 'anything'] as const
+export type WaitFor = (typeof WAIT_FOR)[number]
+export type WaitWhy = Exclude<WaitFor, 'anything'>
+
+export interface WaitResult {
+  done: boolean
+  why: WaitWhy | null
+  state: PaneState
+}
+
+// An MCP client cuts a tool call that never returns, so a wait is bounded and
+// comes back saying nothing happened rather than erroring.
+export const WAIT_MS = 60_000
+export const MAX_WAIT_MS = 300_000
+
+// The two halves of a wait in one place: what the link already looks like, and
+// what a message did to it. A null message is the check made before anything
+// has arrived, so a session that is already free answers at once rather than
+// waiting for a change that has been and gone.
+export function wakes(
+  what: WaitFor,
+  msg: ServerMessage | null,
+  link: { state: PaneState; outbox: OutboxEntry[]; pending: PendingEntry[] },
+): WaitWhy | null {
+  const any = what === 'anything'
+  // Free means free for this agent: a message of its own still held by the
+  // host, or still queued to go in, means the turn it is waiting on has not
+  // been asked for yet.
+  if (any || what === 'idle') {
+    if (link.state === 'prompt' && !link.outbox.length && !link.pending.length) return 'idle'
+  }
+  if ((any || what === 'dialog') && link.state === 'dialog') return 'dialog'
+  if (!msg) return null
+  if ((any || what === 'reply') && msg.type === 'transcript' && msg.entry.role === 'assistant') {
+    return 'reply'
+  }
+  if ((any || what === 'lane') && msg.type === 'f2f') return 'lane'
+  return null
+}
+
 // A bozo that is a program rather than a browser. It speaks the same protocol
 // and is subject to the same gate: nothing here can approve its own messages.
 export class BozoLink extends EventEmitter {
@@ -130,6 +172,42 @@ export class BozoLink extends EventEmitter {
     this.#send({ type: 'refresh' })
     await settled
     return this.screen
+  }
+
+  // Sit on the socket instead of asking for the screen in a loop. Every change
+  // an agent could care about already arrives here; without this the only way
+  // to notice one is to poll, and a poll costs a whole screen every time.
+  wait(
+    { for: what = 'idle', timeoutMs = WAIT_MS }: { for?: WaitFor; timeoutMs?: number } = {},
+  ): Promise<WaitResult> {
+    const already = wakes(what, null, this)
+    if (already) return Promise.resolve({ done: true, why: already, state: this.state })
+
+    return new Promise<WaitResult>((resolve, reject) => {
+      const stop = () => {
+        clearTimeout(timer)
+        this.off('message', onMessage)
+        this.off('closed', onClosed)
+      }
+      const timer = setTimeout(() => {
+        stop()
+        resolve({ done: false, why: null, state: this.state })
+      }, timeoutMs)
+
+      const onMessage = (msg: ServerMessage) => {
+        const why = wakes(what, msg, this)
+        if (!why) return
+        stop()
+        resolve({ done: true, why, state: this.state })
+      }
+      const onClosed = () => {
+        stop()
+        reject(new Error('the connection to the session closed while waiting'))
+      }
+
+      this.on('message', onMessage)
+      this.on('closed', onClosed)
+    })
   }
 
   async submit(text: string): Promise<ServerMessage> {
