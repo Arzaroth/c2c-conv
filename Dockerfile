@@ -29,9 +29,8 @@ COPY --chown=c2c:c2c . /opt/c2c-conv
 RUN cd /opt/c2c-conv \
  && npm ci \
  && npm run build \
- && npm prune --omit=dev \
- && ln -s /opt/c2c-conv/dist/src/cli.js /usr/local/bin/c2c \
- && chmod +x /opt/c2c-conv/docker/entrypoint.sh
+ && npm prune --omit=dev --no-save \
+ && ln -s /opt/c2c-conv/dist/src/cli.js /usr/local/bin/c2c
 
 USER c2c
 ENV HOME=/home/c2c USER=c2c CLAUDE_CODE_TMPDIR=/home/c2c/.cache/claude
