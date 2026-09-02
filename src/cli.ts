@@ -446,7 +446,8 @@ function attach(session: string): Promise<void> {
 }
 
 const CTL_USAGE =
-  'usage: c2c ctl <status|list|mode gallery|mode yolo|approve ID|deny ID|approve-all|deny-all' +
+  'usage: c2c ctl <status|who|list|mode gallery|mode yolo|trust WHO gallery|yolo|default' +
+  '|approve ID|deny ID|approve-all|deny-all' +
   '|outbox|cancel ID|cancel-all|bump ID|say TEXT|kick ID|rotate>'
 
 async function cmdCtl({ opts, rest }: { opts: Options; rest: string[] }): Promise<void> {
@@ -458,6 +459,7 @@ async function cmdCtl({ opts, rest }: { opts: Options; rest: string[] }): Promis
   }
   const reply = await control(opts.session, message)
   if (sub === 'status') printStatus(reply)
+  else if (sub === 'who') printWho(reply)
   else if (sub === 'rotate' && reply.ok) printRotated(reply, opts)
   else console.log(JSON.stringify(reply, null, 2))
   if (reply.ok === false) process.exit(1)
@@ -474,6 +476,7 @@ function buildControlMessage(sub: string | undefined, args: string[]): ControlRe
     case 'outbox':
     case 'cancel-all':
     case 'rotate':
+    case 'who':
       return { cmd: sub }
     case 'mode':
       return { cmd: 'mode', mode: MODE_ALIASES[args[0]] ?? args[0] }
@@ -481,6 +484,10 @@ function buildControlMessage(sub: string | undefined, args: string[]): ControlRe
       return { cmd: 'say', text: args.join(' ') }
     case 'kick':
       return { cmd: 'kick', who: args[0] }
+    // Two arguments and neither is guessed: this one hands somebody the
+    // keyboard, so it is not the place for a helpful default.
+    case 'trust':
+      return args[0] && args[1] ? { cmd: 'trust', who: args[0], mode: args[1] } : null
     case 'approve':
     case 'deny':
     case 'cancel':
@@ -506,6 +513,32 @@ function printRotated(reply: ControlReply, opts: Options): void {
   }
 }
 
+// One bozo as the host reads them: who they are, what they may do, and whether
+// anybody is actually behind the browser.
+function bozoLine(bozo: RosterEntry): string {
+  const marks = [
+    bozo.trusted ? `${bozo.mode} (trusted)` : bozo.mode,
+    bozo.whiteface ? 'whiteface' : '',
+    bozo.idle ? 'idle' : 'here',
+    `via ${bozo.via}`,
+  ].filter(Boolean)
+  return `  ${bozo.id}  ${bozo.name.padEnd(16)}${marks.join('  ')}`
+}
+
+function printWho(reply: ControlReply): void {
+  if (!reply.ok) {
+    console.error(reply.error)
+    return
+  }
+  const bozos = 'bozos' in reply ? reply.bozos ?? [] : []
+  console.log(`the room is ${'mode' in reply ? reply.mode : '?'} by default`)
+  if (!bozos.length) {
+    console.log('nobody is in the circus')
+    return
+  }
+  for (const bozo of bozos) console.log(bozoLine(bozo))
+}
+
 function printStatus(reply: ControlReply): void {
   if (!reply.ok) {
     console.error(reply.error)
@@ -525,7 +558,7 @@ function printStatus(reply: ControlReply): void {
   // "bozo" is the default rather than the exception.
   if (reply.bozos.length) {
     console.log('bozos:')
-    for (const bozo of reply.bozos) console.log(`  ${bozo.id}  ${bozo.name} (${bozo.via})`)
+    for (const bozo of reply.bozos) console.log(bozoLine(bozo))
   } else {
     console.log('bozos    none')
   }
@@ -582,12 +615,18 @@ usage:
   c2c attach [-s NAME]
   c2c invite [-s NAME]
   c2c say <text>   post a line to the f2f lane, which claude never sees
-  c2c ctl <status|list|mode gallery|mode yolo|approve ID|deny ID|approve-all|deny-all
+  c2c ctl <status|who|list|mode gallery|mode yolo|trust WHO gallery|yolo|default
+           |approve ID|deny ID|approve-all|deny-all
            |outbox|cancel ID|cancel-all|bump ID|say TEXT|kick ID|rotate>
   c2c stop [-s NAME]
   c2c version | --version
   c2c bigtop [-p PORT] [--bind ADDR]
   c2c zavatta [-s NAME] [--url URL] [--name WHO]  join a session as an AI bozo (MCP)
+
+who may send:
+  mode <m>         the room default, for everyone the host has not singled out
+  trust WHO <m>    one bozo, whatever the room does. "default" puts them back
+  who              the roster: who is in the circus, and what each of them may do
 
 the outbox:
   drain (default)  one message at a time, each waiting for the last turn to end
