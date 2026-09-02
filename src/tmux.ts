@@ -41,7 +41,11 @@ export async function newSession(
   { name, cwd, command, cols = 200, rows = 50 }:
   { name: string; cwd: string; command: string; cols?: number; rows?: number },
 ): Promise<void> {
+  // The server has to exist before it can be configured: set-option on a dead
+  // socket errors, and new-session then starts one on the tmux default. Without
+  // this the limit below was never applied to anything.
   try {
+    await tmux(['start-server'])
     await tmux(['set-option', '-g', 'history-limit', String(HISTORY_LIMIT)])
   } catch {}
   await tmux([
@@ -102,6 +106,16 @@ export async function paneSize(name: string): Promise<PaneSize> {
   const { stdout } = await tmux(['display-message', '-p', '-t', name, '#{pane_width} #{pane_height}'])
   const [cols, rows] = stdout.trim().split(/\s+/).map(Number) as [number, number]
   return { cols, rows }
+}
+
+// How much has scrolled off the top, and whether this pane is even the kind
+// that keeps any. A full-screen program runs on the alternate screen, where
+// tmux holds no history at all: claude is one, so its snapshot can never be
+// taller than the pane, however many lines are asked for.
+export async function paneHistory(name: string): Promise<PaneHistory> {
+  const { stdout } = await tmux(['display-message', '-p', '-t', name, '#{history_size} #{alternate_on}'])
+  const [size, alternate] = stdout.trim().split(/\s+/).map(Number) as [number, number]
+  return { size: size || 0, alternate: alternate === 1 }
 }
 
 export async function capturePane(name: string): Promise<string> {

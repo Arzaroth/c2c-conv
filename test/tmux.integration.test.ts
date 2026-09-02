@@ -138,6 +138,24 @@ test('the cursor position is readable for seeding a bozo', { skip: !available },
   assert.ok(Number.isInteger(y) && y >= 0)
 })
 
+// The scrollback view offered page-up buttons on a pane that could never have
+// anything above the fold. A program drawing full screen keeps no history in
+// tmux, and claude is one, so that was every session c2c hosts.
+test('history says whether a pane keeps any at all', { skip: !available }, async () => {
+  const scrolling = await tmux.paneHistory(NAME)
+  assert.equal(scrolling.alternate, false)
+  assert.ok(scrolling.size > 0, 'a shell that has printed past the pane pushes lines off the top')
+
+  const full = `${NAME}alt`
+  await tmux.newSession({ name: full, cwd: '/tmp', command: `sh -c 'printf "\\033[?1049h"; sleep 30'` })
+  await settle(500)
+  const alt = await tmux.paneHistory(full)
+  await tmux.killSession(full)
+
+  assert.equal(alt.alternate, true)
+  assert.equal(alt.size, 0, 'the alternate screen keeps no history, whatever the limit')
+})
+
 test('a killed session reports dead rather than throwing', { skip: !available }, async () => {
   const doomed = `${NAME}gone`
   await tmux.newSession({ name: doomed, cwd: '/tmp', command: 'sh' })

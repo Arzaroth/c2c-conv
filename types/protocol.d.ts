@@ -76,6 +76,13 @@ interface PaneSize {
   rows: number
 }
 
+interface PaneHistory {
+  // Lines that have scrolled off the top. Zero on the alternate screen, where
+  // there is no history to have.
+  size: number
+  alternate: boolean
+}
+
 /* ── policy ─────────────────────────────────────────────────────────────── */
 
 type SubmitResult =
