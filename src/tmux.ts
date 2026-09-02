@@ -155,6 +155,17 @@ export async function paneAlive(name: string): Promise<boolean> {
 const DIALOG = [/Enter to confirm/i, /Esc to (cancel|reject|go back)/i]
 const BUSY = [/esc to interrupt/i]
 
+// Claude Code paints a suggested prompt into the empty box in dim text, the one
+// tab accepts. Nobody typed it and it is repainted after every turn, so reading
+// it as a draft wedges every queued message behind a line nobody wrote. The
+// characters are identical either way: only the colour tells the two apart.
+const GHOST = /\x1b\[2m.*?(?:\x1b\[(?:0|22)m|$)/g
+const SGR = /\x1b\[[0-9;]*m/g
+
+function unpaint(line: string): string {
+  return line.replace(GHOST, '').replace(SGR, '')
+}
+
 // The footer text changes as soon as the host types a draft, so the input box
 // is identified structurally instead: a prompt marker sitting directly under
 // the box's top rule. Prompt markers in the scrollback are the echo of previous
@@ -162,7 +173,7 @@ const BUSY = [/esc to interrupt/i]
 // the last submitted message back as if it were an unsent draft.
 // Returns null when there is no input box on screen at all.
 export function readPromptBox(screen: string): string | null {
-  const tail = screen.split('\n').slice(-8)
+  const tail = screen.split('\n').map(unpaint).slice(-8)
   const index = tail.findIndex((line) => /^\s*❯/.test(line))
   if (index <= 0 || !/^\s*─{20,}/.test(tail[index - 1])) return null
   return tail[index].replace(/^\s*❯\s?/, '').trim()
@@ -198,9 +209,11 @@ export async function paneState(name: string): Promise<PaneState> {
 
 // Anything sitting in the input box is the host's unsent draft, and injecting
 // would splice bozo text into the middle of it. null means the box is not on
-// screen, which is not the same as it being empty.
+// screen, which is not the same as it being empty. This is the one read that
+// keeps its escapes: a suggestion and a draft are the same characters in
+// different colours, and stripping them first would lose the difference.
 export async function promptDraft(name: string): Promise<string | null> {
-  return readPromptBox(await capturePlain(name))
+  return readPromptBox(await capturePane(name))
 }
 
 export async function waitForPrompt(name: string, timeoutMs = 15000): Promise<PaneState> {

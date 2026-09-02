@@ -59,6 +59,35 @@ test('a typed draft is read out of the input box', () => {
   assert.equal(readPromptBox(DRAFTED), 'deploy to prod')
 })
 
+// Captured off a live pane: the suggestion Claude Code offers after a turn is
+// dim, and the box under it is empty. Reading it as a draft held every queued
+// message behind a line nobody had typed.
+const SUGGESTED = screen(
+  '● ALPHA',
+  '',
+  RULE,
+  '\x1b[39m❯ \x1b[2mnettoie les chemins obsolètes\x1b[0m',
+  RULE,
+  '  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents'
+)
+
+test('a dim suggestion is not a draft', () => {
+  assert.equal(readPromptBox(SUGGESTED), '')
+  assert.equal(classifyScreen(SUGGESTED), 'prompt')
+})
+
+test('a coloured draft is still a draft', () => {
+  const coloured = screen(RULE, '\x1b[39m❯ deploy to prod\x1b[0m', RULE, '  ⏸ manual mode on')
+  assert.equal(readPromptBox(coloured), 'deploy to prod')
+})
+
+// The half-typed case is the one that has to survive: what the host put in is
+// kept, and only the completion offered after it is dropped.
+test('what was typed survives the suggestion offered after it', () => {
+  const half = screen(RULE, '❯ deploy \x1b[2mto prod\x1b[0m', RULE, '  ⏸ manual mode on')
+  assert.equal(readPromptBox(half), 'deploy')
+})
+
 // The footer loses "for shortcuts" the moment the host types, so anything
 // keyed off footer text misreads a drafted pane as unknown.
 test('a drafted pane is still a prompt', () => {
