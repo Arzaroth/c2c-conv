@@ -11,6 +11,23 @@ than adding to it.
 
 ### Fixed
 
+- **The history follows a `/clear`.** The transcript was located once at startup
+  and tailed for the life of the ringmaster. `/clear` keeps the pane, the pid
+  and the descriptor and writes a new session id into it, so the file being
+  read stopped growing: the history tab froze on the conversation from before
+  the clear and never said why. The descriptor is now re-read on a timer, and a
+  new session id swaps the stream over and empties the history first - what came
+  before is not in claude's context any more, so showing it as the conversation
+  says something about claude that is not true.
+- **A message that never went in is no longer reported as sent.** The delivery
+  path waited for the input box to go empty and then ignored the answer: when
+  the box never emptied it returned success anyway, so the entry left the
+  outbox, everybody was told it had been delivered, and the text sat in claude's
+  prompt box as a draft nobody meant to leave. A stuck box is now noticed. If
+  the text still in there is ours a second Enter finishes it, and if that fails
+  too the entry fails loudly with the reason on every surface, text left in
+  place, one keypress from going in.
+
 - **The scrollback tab stops offering paging it cannot do.** It presented `top`,
   `page up`, `page down` and `bottom` over a buffer that was always exactly the
   visible pane, so the buttons and the scrollbar moved nothing and there was no

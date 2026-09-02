@@ -459,6 +459,7 @@ const HELD: Partial<Record<HoldReason, string>> = {
   'copy-mode': 'the pane is in copy mode',
   dead: 'the pane is gone',
   error: 'the write failed',
+  unsubmitted: 'it was typed into the box but never went in - the host can press Enter to finish it',
 }
 
 // Past the gate, waiting only on the session. Everyone sees this one: a bozo
