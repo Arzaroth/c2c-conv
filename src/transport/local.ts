@@ -40,6 +40,13 @@ export class LocalTransport extends EventEmitter implements Transport {
     return `http://${host}:${this.#port}/?t=${this.#token}`
   }
 
+  // The token is the only credential, so revoking a link means replacing it
+  // here. Sockets already open were checked against the old one and are the
+  // ringmaster's to close; anything that comes back is checked against this.
+  setToken(token: string): void {
+    this.#token = token
+  }
+
   get port(): number {
     return this.#port
   }

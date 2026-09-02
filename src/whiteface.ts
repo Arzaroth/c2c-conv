@@ -59,6 +59,13 @@ export class Whiteface<Holder = unknown> {
     return { ok: true }
   }
 
+  // A link is only revoked once the secret behind it changes, and the holder
+  // goes with it: whoever comes back has to present the new token.
+  rotate(token: string): void {
+    this.#token = token
+    this.#holder = null
+  }
+
   release(bozo: Holder): boolean {
     if (!this.holds(bozo)) return false
     this.#holder = null

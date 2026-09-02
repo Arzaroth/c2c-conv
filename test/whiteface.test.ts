@@ -79,3 +79,19 @@ test('the whiteface gets the release, drop, outbox and mode commands but not sta
     assert.equal(WHITEFACE_COMMANDS.has(cmd), false, cmd)
   }
 })
+
+test('rotating the token puts the holder out and kills the old secret', () => {
+  const role = new Whiteface<Holder>('secret')
+  role.claim(alice, 'secret')
+  role.rotate('fresh')
+
+  assert.equal(role.holder, null)
+  assert.deepEqual(role.claim(alice, 'secret'), { ok: false, reason: 'bad token' })
+  assert.deepEqual(role.claim(bob, 'fresh'), { ok: true })
+})
+
+test('a rotated role is still a role: it does not turn itself off', () => {
+  const role = new Whiteface<Holder>('secret')
+  role.rotate('fresh')
+  assert.equal(role.enabled, true)
+})

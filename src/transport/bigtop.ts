@@ -74,6 +74,17 @@ export class BigtopTransport extends EventEmitter implements Transport {
     this.#socket?.close()
   }
 
+  // A room's token is fixed by whoever claimed it, and the bigtop drops the
+  // room when the uplink goes. So rotating is going away and coming straight
+  // back, which reclaims the room under the new secret. The reconnect is
+  // deliberate, so it skips the diagnosis a real outage gets.
+  setToken(token: string): void {
+    this.#token = token
+    this.#backoff = BACKOFF_MIN
+    this.#diagnosed = true
+    this.#socket?.close()
+  }
+
   broadcastBinary(chunk: Uint8Array): void {
     this.#send(chunk)
   }
