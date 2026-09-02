@@ -302,5 +302,5 @@ Clear or send your draft, or answer the dialog, and the bozo can resend.
 
 ## Status
 
-v0. Works end to end. Rough edges are listed in
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#open-work).
+v0. Works end to end. What is left, and why each thing is worth doing, is in
+[TODO.md](TODO.md).

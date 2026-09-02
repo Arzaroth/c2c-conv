@@ -338,6 +338,6 @@ socket, both reachable only from the machine itself.
 
 ## Open work
 
-- Pane geometry is fixed at 200x50 until a client attaches; no flag for it yet.
-- The mirror itself still has no scrollback; history lives in the transcript
-  panel instead, which covers conversation but not raw terminal output.
+The list lives in [../TODO.md](../TODO.md), where each item carries its cost and
+its risk. The fixed pane geometry and the mirror's missing scrollback are the two
+that started here.
