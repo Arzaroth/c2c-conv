@@ -447,7 +447,7 @@ function attach(session: string): Promise<void> {
 
 const CTL_USAGE =
   'usage: c2c ctl <status|list|mode gallery|mode yolo|approve ID|deny ID|approve-all|deny-all' +
-  '|outbox|cancel ID|cancel-all|bump ID|say TEXT|kick ID>'
+  '|outbox|cancel ID|cancel-all|bump ID|say TEXT|kick ID|rotate>'
 
 async function cmdCtl({ opts, rest }: { opts: Options; rest: string[] }): Promise<void> {
   const [sub, ...args] = rest
@@ -458,6 +458,7 @@ async function cmdCtl({ opts, rest }: { opts: Options; rest: string[] }): Promis
   }
   const reply = await control(opts.session, message)
   if (sub === 'status') printStatus(reply)
+  else if (sub === 'rotate' && reply.ok) printRotated(reply, opts)
   else console.log(JSON.stringify(reply, null, 2))
   if (reply.ok === false) process.exit(1)
 }
@@ -472,6 +473,7 @@ function buildControlMessage(sub: string | undefined, args: string[]): ControlRe
     case 'deny-next':
     case 'outbox':
     case 'cancel-all':
+    case 'rotate':
       return { cmd: sub }
     case 'mode':
       return { cmd: 'mode', mode: MODE_ALIASES[args[0]] ?? args[0] }
@@ -486,6 +488,21 @@ function buildControlMessage(sub: string | undefined, args: string[]): ControlRe
       return { cmd: sub, id: args[0] }
     default:
       return null
+  }
+}
+
+// The one control command whose whole point is a string a human has to copy,
+// so it prints the new links rather than the reply that carries them.
+function printRotated(reply: ControlReply, opts: Options): void {
+  if (!('meta' in reply) || !reply.meta) return
+  const meta = reply.meta
+  console.log('the old links are dead, and everyone who held one was put out.')
+  console.log('')
+  printInvite(meta, opts)
+  if (meta.whitefaceUrl) {
+    console.log('  your own link, which makes you the whiteface (keep it to yourself):')
+    console.log(`    ${meta.whitefaceUrl}`)
+    console.log('')
   }
 }
 
@@ -566,7 +583,7 @@ usage:
   c2c invite [-s NAME]
   c2c say <text>   post a line to the f2f lane, which claude never sees
   c2c ctl <status|list|mode gallery|mode yolo|approve ID|deny ID|approve-all|deny-all
-           |outbox|cancel ID|cancel-all|bump ID|say TEXT|kick ID>
+           |outbox|cancel ID|cancel-all|bump ID|say TEXT|kick ID|rotate>
   c2c stop [-s NAME]
   c2c version | --version
   c2c bigtop [-p PORT] [--bind ADDR]

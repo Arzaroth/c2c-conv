@@ -161,6 +161,7 @@ c2c ctl approve 3         # release a specific message
 c2c ctl deny 3
 c2c ctl cancel o2         # pull one back out of the outbox
 c2c ctl kick 01a8c1a0     # show one bozo the door
+c2c ctl rotate            # new link, everyone out, the old one dead
 ```
 
 ## Headless: web only, nobody at the terminal
@@ -234,6 +235,36 @@ thirty; past that a shared terminal is a broadcast, and every bozo costs another
 copy of the pane stream. The 31st is refused rather than quietly degrading
 everyone else.
 
+## Taking it back
+
+The link is the whole credential. `--tunnel` in particular is a public URL where
+the token is the only thing between a stranger and your session, and a link that
+has been sent to someone is a link you no longer control. Until now the only way
+to undo that was `c2c stop`, which ends the claude session everyone is working
+in.
+
+```sh
+c2c ctl kick 01a8c1a0     # disconnect one bozo, by id or by name
+c2c ctl rotate            # mint a new link and kill the old one
+```
+
+**kick** shows one person out. `c2c ctl status` lists each bozo with its id,
+because a name is what a bozo calls itself and two of them called `bozo` is the
+normal case rather than the exception - a name matching more than one is refused
+rather than guessed at. Kick does not revoke anything: they still hold a working
+link and can walk back in. It is for "you are in the wrong session", not for "I
+should not have sent you that".
+
+**rotate** is the one for that. It puts everybody out, replaces the token, and
+prints the new invite. Every URL you have handed round stops working, including
+the whiteface link: that secret is separate, so rotating only the share link
+would leave an old whiteface token to be pasted onto the new one. On a bigtop the
+room is dropped and reclaimed under the new token, so the room URL changes with
+it. The claude session is untouched throughout - nobody loses any work.
+
+Everyone put out is told why, so a browser stops retrying rather than sitting on
+a dead token reconnecting into a 401.
+
 ## When the session asks a question
 
 Claude asks things with arrow-key menus: permission prompts, `/model`, plan
@@ -266,7 +297,7 @@ safe. Elevate for people you would hand your actual keyboard to.
 | `c2c say <text>` | post a line to the f2f lane |
 | `c2c ctl <status\|list\|mode\|approve\|deny\|approve-all\|deny-all>` | host control |
 | `c2c ctl <outbox\|cancel ID\|cancel-all\|bump ID\|say TEXT>` | the outbox and the lane |
-| `c2c ctl kick ID` | show one bozo the door |
+| `c2c ctl <kick ID\|rotate>` | show one bozo out, or reset the link for everybody |
 | `c2c stop [-s NAME]` | tear it down |
 | `c2c bigtop [-p PORT] [--bind ADDR]` | run a bigtop |
 

@@ -324,6 +324,29 @@ export class Ringmaster {
     bozo.channel.close()
   }
 
+  // The link is the whole credential, so the only way to take one back is to
+  // change what is behind it. Everyone is put out and every URL handed round
+  // stops working, the whiteface's included: its secret is separate, and it
+  // would otherwise survive the new share link being sent to the same people.
+  #rotate(): SessionMeta {
+    // Everyone is put out first. Rotating the bigtop's token drops the uplink,
+    // and a bye sent after that reaches nobody: the room's bozos would get the
+    // server's own "host disconnected" instead and keep retrying a dead link.
+    for (const bozo of [...this.#bozos.values()]) {
+      this.#show(bozo, 'the host reset the link - ask them for the new one')
+    }
+
+    this.#token = randomBytes(16).toString('hex')
+    this.#local.setToken(this.#token)
+    this.#bigtop?.setToken(this.#token)
+    if (this.#whiteface.enabled) this.#whiteface.rotate(randomBytes(16).toString('hex'))
+
+    this.#notifyHost('c2c: the link was reset - the old one no longer works')
+    this.#writeMeta()
+    this.#writeStatusLine()
+    return this.#meta()
+  }
+
   async #onGuest(channel: Channel): Promise<void> {
     const bozo: Bozo = { id: channel.id, name: 'bozo', origin: channel.origin, channel }
     this.#bozos.set(channel.id, bozo)
@@ -748,6 +771,8 @@ export class Ringmaster {
         this.#notifyHost(`c2c: kicked ${bozo.name}`)
         return { ok: true, kicked: { id: bozo.id, name: bozo.name } }
       }
+      case 'rotate':
+        return { ok: true, meta: this.#rotate() }
       case 'approve-all':
         return { ok: true, approved: this.#policy.approveAll() }
       case 'deny-all':

@@ -208,6 +208,22 @@ claude queues what is typed mid-turn, and a modal still swallows it.
 State detection reads an *uncoloured* `capture-pane`. With `-e`, tmux wraps each
 individual word in its own SGR pair, so phrase matching silently never matches.
 
+**A link can be taken back.** `c2c ctl rotate` replaces the token, so every URL
+already handed out stops working, and puts everyone out on the way. It rotates
+the whiteface secret with it rather than only the share link: the two are
+separate on purpose, and rotating one would leave an old `w=` to be pasted onto
+the new `t=`. Order matters in one place - each bozo is told and closed *before*
+the tokens change, because rotating the bigtop's token drops the uplink, and a
+`bye` sent after that reaches nobody. Bozos would then get the bigtop's own
+"host disconnected" and keep reconnecting into a 401.
+
+`c2c ctl kick` is the smaller one: it disconnects a bozo without revoking
+anything, so they can come back with the link they still hold. Both live on the
+control socket rather than the whiteface: rotate mints a secret and its reply is
+the only place the new link exists, and it would cut the socket that asked for
+it. Kick could be a whiteface command, but a browser has no roster to pick a
+target from yet.
+
 In `ring` the bozo can run arbitrary code as the host. There is no way to offer
 "send prompts freely" without this, because a prompt can ask for anything. The
 mitigation is social, not technical: only elevate for someone you would hand your

@@ -18,6 +18,11 @@ than adding to it.
   reports that nothing happened rather than erroring.
 - `c2c_status` says how many of the agent's own messages the host is still
   holding, which until now it had no way to see.
+- **Revocation.** `c2c ctl rotate` mints a new token, puts everyone out and
+  prints the new invite, so a link that has been shared too widely can be taken
+  back without ending the claude session. It rotates the whiteface secret with
+  it, since that one is separate and would otherwise survive. On a bigtop the
+  room is reclaimed under the new token.
 - `c2c ctl kick <id|name>` disconnects one bozo. It revokes nothing - they still
   hold a working link - and a name matching more than one bozo is refused rather
   than guessed at.

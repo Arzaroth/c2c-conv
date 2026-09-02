@@ -89,18 +89,21 @@ type ControlCommand =
   | 'status' | 'list' | 'mode' | 'stop' | 'say'
   | 'approve' | 'deny' | 'approve-next' | 'deny-next' | 'approve-all' | 'deny-all'
   | 'outbox' | 'cancel' | 'cancel-all' | 'bump'
-  | 'kick'
+  | 'kick' | 'rotate'
 
 // status carries the token and stop ends the session: those two stay with
-// c2c ctl and are never reachable from a browser. kick is out until a browser
-// has a roster to pick a target from. say is the host's way into the f2f lane
-// from the terminal, and a browser already has the lane itself.
-type WhitefaceCommand = Exclude<ControlCommand, 'status' | 'stop' | 'say' | 'kick'>
+// c2c ctl and are never reachable from a browser. rotate is out for the same
+// reason as status - it mints the new secret, the reply is the only place the
+// new link exists, and it would cut the socket that asked for it. kick is out
+// until a browser has a roster to pick a target from. say is the host's way
+// into the f2f lane from the terminal, and a browser already has the lane.
+type WhitefaceCommand =
+  Exclude<ControlCommand, 'status' | 'stop' | 'say' | 'rotate' | 'kick'>
 
 type ControlRequest =
   | {
       cmd: 'status' | 'list' | 'stop' | 'approve-next' | 'deny-next' | 'approve-all' | 'deny-all'
-        | 'outbox' | 'cancel-all'
+        | 'outbox' | 'cancel-all' | 'rotate'
     }
   | { cmd: 'mode'; mode: string }
   | { cmd: 'say'; text: string }
@@ -137,6 +140,10 @@ interface ActionReply {
   bumped?: OutboxEntry | null
   said?: F2fMessage
   kicked?: { id: string; name: string }
+  // Everything a fresh link is made of, so the terminal that asked for the
+  // rotation can print the new one without reading a file that may not have
+  // been rewritten yet.
+  meta?: SessionMeta
   stopping?: boolean
 }
 
