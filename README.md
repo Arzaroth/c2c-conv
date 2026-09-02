@@ -51,7 +51,7 @@ ringmaster serves to a browser. `dist/` is gitignored.
 
 ```sh
 mise trust && mise run install     # pnpm install, build, then symlink ~/.local/bin/c2c
-c2c --version                      # 0.3.0 (15cef65), and which checkout it points at
+c2c --version                      # 0.3.1 (99ebb92), and which checkout it points at
 ```
 
 `mise tasks` lists the rest: `deps`, `build`, `test`, `check`, `host`, `local`,

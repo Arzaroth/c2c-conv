@@ -9,6 +9,50 @@ than adding to it.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-02
+
+### Added
+
+- **The outbox.** Everything the gate clears now waits in a queue that
+  delivers one message at a time, and waits for the session to finish the last
+  turn before starting the next. It is broadcast to everyone, with each entry's
+  place in the line and, when the head is blocked, why. The whiteface can pull
+  one back out (`cancel`) or move one to the front (`bump`).
+- `--outbox through`, which types into a working session and lets claude do the
+  queueing in its own UI instead. Faster, and nothing can be cancelled once it
+  is in. It relaxes only the busy case: a dialog still waits.
+- **The f2f lane.** A chat surface between the clowns that never reaches
+  claude: not gated, not queued, not transcribed, and with no code path from
+  the lane to the pane. `c2c say` is the host's side of it, since the terminal
+  has no panel, and a bozo's line arrives there as a tmux message.
+- **The scrollback view.** A snapshot of the pane and everything that has
+  scrolled off it, in its own tab, with paging and a refresh. tmux keeps 10000
+  lines per pane now, which is the ceiling on how far back it reaches.
+- `c2c_say` and `c2c_f2f` for the MCP bozo, so an agent in the room can hear
+  and use the lane.
+- `c2c ctl outbox|cancel ID|cancel-all|bump ID|say TEXT`, and the outbox in
+  `c2c ctl status` and on the tmux status line.
+
+### Changed
+
+- A cleared message is no longer written to the pane directly. The outbox is
+  the only writer, so serialisation is structural rather than a promise chain.
+- Being blocked means "not yet" rather than "never": a message waits for as
+  long as the pane needs, and the host is told the reason once per change of
+  reason rather than once per attempt.
+- The scrollback view is a second xterm fed snapshots, never the live stream.
+  The mirror positions its cursor against a fixed grid, so scrolling it would
+  put every later redraw a row out.
+
+### Fixed
+
+- A message cleared to send while claude was working was dropped after 15
+  seconds, with a tmux notice and nothing else: the bozo had been told it went
+  through, and the words then existed nowhere. Only a dead pane or a failed
+  write loses a message now, and both are loud on every surface.
+- `tmux display-message` expands `#{...}` formats, and most of what it carries
+  is a bozo's name or a bozo's words. Hashes are doubled on the way in.
+
 ## [0.3.0] - 2026-09-02
 
 ### Changed

@@ -1,7 +1,7 @@
 # TODO
 
 What is left, and why each thing is worth doing. Grounded in the code as it
-stands at v0.3.0: the architecture is finished for what it does, so almost
+stands at v0.3.1: the architecture is finished for what it does, so almost
 nothing here is plumbing.
 
 Done since v0.3.0: the f2f lane, the outbox, and the scrollback view. A bozo can

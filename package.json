@@ -1,6 +1,6 @@
 {
   "name": "c2c-conv",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Share one Claude Code session with a second person, live",
   "type": "module",
   "packageManager": "pnpm@11.21.0",
