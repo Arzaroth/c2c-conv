@@ -183,6 +183,10 @@ type ServerMessage =
   // one the host is looking at is worse than the bytes are worth.
   | { type: 'outbox'; entries: OutboxEntry[]; mode: OutboxMode }
   | { type: 'f2f'; msg: F2fMessage }
+  // A snapshot of the pane with its scrollback, asked for and answered once.
+  // Never the live surface: the mirror positions the cursor relative to a fixed
+  // grid, so anything that scrolls has to be somewhere else entirely.
+  | { type: 'scrollback'; data: string; cols: number; rows: number; lines: number }
   | { type: 'notice'; text: string }
   | { type: 'bye'; text: string }
   | { type: 'transcript'; entry: TranscriptEntry }
@@ -200,6 +204,7 @@ type BozoMessage =
   | { type: 'key'; key: string }
   | { type: 'submit'; text: string }
   | { type: 'f2f'; text: string }
+  | { type: 'scrollback'; lines?: number }
   // The whiteface half of the vocabulary, shaped like a control request minus
   // the cmd key, which the ringmaster fills in from the type.
   | { type: 'list' | 'approve-next' | 'deny-next' | 'approve-all' | 'deny-all' }

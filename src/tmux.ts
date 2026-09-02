@@ -32,10 +32,18 @@ export async function hasSession(name: string): Promise<boolean> {
   }
 }
 
+// How many lines of pane history tmux keeps, which is the ceiling on what the
+// scrollback view can show. Set on the server before the pane exists: a pane
+// takes its limit at creation and ignores the option afterwards.
+export const HISTORY_LIMIT = 10000
+
 export async function newSession(
   { name, cwd, command, cols = 200, rows = 50 }:
   { name: string; cwd: string; command: string; cols?: number; rows?: number },
 ): Promise<void> {
+  try {
+    await tmux(['set-option', '-g', 'history-limit', String(HISTORY_LIMIT)])
+  } catch {}
   await tmux([
     'new-session', '-d',
     '-s', name,
@@ -98,6 +106,15 @@ export async function paneSize(name: string): Promise<PaneSize> {
 
 export async function capturePane(name: string): Promise<string> {
   const { stdout } = await tmux(['capture-pane', '-p', '-e', '-t', name])
+  return stdout
+}
+
+// The pane plus what has scrolled off it. A separate surface from the live
+// mirror by construction: this is a snapshot, and the mirror repaints in place
+// against a fixed grid, so anything taller than the grid cannot live in it.
+export async function captureScrollback(name: string, lines: number): Promise<string> {
+  const wanted = Math.max(0, Math.min(Math.trunc(lines) || 0, HISTORY_LIMIT))
+  const { stdout } = await tmux(['capture-pane', '-p', '-e', '-S', `-${wanted}`, '-t', name])
   return stdout
 }
 

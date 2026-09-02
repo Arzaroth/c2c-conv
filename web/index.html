@@ -302,6 +302,48 @@
   }
   .lane-note b { color: var(--wig-6); font-weight: 700; }
 
+  /* A snapshot, never the live surface. The mirror positions its cursor
+     relative to a fixed grid, so a scrolling view has to be somewhere else. */
+  #scrollback {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: #0b0910;
+  }
+  #scrollback[hidden] { display: none; }
+  .scroll-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+    font-size: 12px;
+  }
+  .scroll-label { font-weight: 700; color: var(--wig-5); }
+  .scroll-count { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .scroll-bar button {
+    padding: 5px 11px;
+    border-radius: 7px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .scroll-bar button:hover { border-color: var(--wig-5); }
+  #scroll-screen {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    padding: 6px 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
   .history-inner {
     max-width: 900px;
     margin: 0 auto;
@@ -464,6 +506,7 @@
     <div class="spacer"></div>
     <button type="button" id="f2f-toggle" class="badge tab">f2f</button>
     <button type="button" id="history-toggle" class="badge tab">history</button>
+    <button type="button" id="scroll-toggle" class="badge tab">scrollback</button>
     <input type="text" id="who" class="who" maxlength="40" placeholder="your name" aria-label="Your name">
   </header>
 
@@ -484,6 +527,20 @@
       <b>farce-to-farce.</b> clown to clown is what claude hears. This is not that:
       nothing said here is sent, queued or transcribed.
     </div>
+  </div>
+
+  <div id="scrollback" hidden>
+    <div class="scroll-bar" id="scroll-bar">
+      <span class="scroll-label">🤡 snapshot</span>
+      <span class="scroll-count" id="scroll-count">asking...</span>
+      <span class="spacer"></span>
+      <button type="button" data-scroll="top">top</button>
+      <button type="button" data-scroll="up">page up</button>
+      <button type="button" data-scroll="down">page down</button>
+      <button type="button" data-scroll="bottom">bottom</button>
+      <button type="button" data-scroll="refresh">refresh</button>
+    </div>
+    <div id="scroll-screen"></div>
   </div>
 
   <footer class="dots">

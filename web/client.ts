@@ -35,6 +35,11 @@ const el = {
   f2fForm: pick<HTMLFormElement>('f2f-form'),
   f2fText: pick<HTMLInputElement>('f2f-text'),
   f2fToggle: pick<HTMLButtonElement>('f2f-toggle'),
+  scrollback: pick<HTMLDivElement>('scrollback'),
+  scrollToggle: pick<HTMLButtonElement>('scroll-toggle'),
+  scrollScreen: pick<HTMLDivElement>('scroll-screen'),
+  scrollBar: pick<HTMLDivElement>('scroll-bar'),
+  scrollCount: pick<HTMLSpanElement>('scroll-count'),
   outbox: pick<HTMLDivElement>('outbox'),
 }
 
@@ -43,18 +48,22 @@ const el = {
 const turns: TranscriptEntry[] = []
 const lane: F2fMessage[] = []
 
-// Three surfaces, one at a time, and the live mirror is what is underneath the
-// other two.
-type Panel = 'history' | 'f2f'
+// Four surfaces, one at a time, and the live mirror is what is underneath them
+// all. The scrollback is a snapshot rather than a fifth thing the pane stream
+// writes into: the mirror pins its cursor to a fixed grid, so a view that
+// scrolls cannot be the same surface without every later redraw landing a row
+// off.
+type Panel = 'history' | 'f2f' | 'scroll'
 type View = 'live' | Panel
 
 const PANELS: { name: Panel; label: string; tab: HTMLButtonElement; panel: HTMLElement }[] = [
   { name: 'f2f', label: 'f2f', tab: el.f2fToggle, panel: el.f2f },
   { name: 'history', label: 'history', tab: el.historyToggle, panel: el.history },
+  { name: 'scroll', label: 'scrollback', tab: el.scrollToggle, panel: el.scrollback },
 ]
 
 let showing: View = 'live'
-const unseen: Record<Panel, number> = { history: 0, f2f: 0 }
+const unseen: Record<Panel, number> = { history: 0, f2f: 0, scroll: 0 }
 
 function renderTabs(): void {
   for (const { name, label, tab } of PANELS) {
@@ -86,6 +95,13 @@ function setView(next: View): void {
     renderLane()
     el.f2fScroll.scrollTop = el.f2fScroll.scrollHeight
     el.f2fText.focus()
+  }
+  // A snapshot is only worth what it was worth when it was taken, so opening
+  // the tab always asks for a fresh one.
+  if (next === 'scroll') {
+    ensureScrollTerm()
+    requestScrollback()
+    rescale()
   }
   renderTabs()
 }
@@ -238,6 +254,62 @@ const term = new Terminal({
 term.open(el.screen)
 term.resize(80, 24)
 
+// The scrollback view is a second terminal on purpose. It is fed one snapshot
+// at a time and never sees the live stream, so it can have a scrollback buffer
+// without any of it landing under the mirror's cursor arithmetic.
+// Built on first use: xterm measures a character when it opens, and opening it
+// inside a hidden panel measures zero.
+let scrollTerm: Terminal | null = null
+
+function ensureScrollTerm(): Terminal {
+  if (!scrollTerm) {
+    scrollTerm = new Terminal({
+      cursorBlink: false,
+      disableStdin: true,
+      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+      fontSize: 13,
+      scrollback: 20000,
+      theme: {
+        background: '#0b0910',
+        foreground: '#f4efff',
+        cursor: '#0b0910',
+        selectionBackground: '#a06bff55',
+      },
+    })
+    scrollTerm.open(el.scrollScreen)
+    scrollTerm.resize(80, 24)
+  }
+  return scrollTerm
+}
+
+function requestScrollback(): void {
+  el.scrollCount.textContent = 'asking for a snapshot...'
+  send({ type: 'scrollback', lines: 5000 })
+}
+
+function applyScrollback(msg: { data: string; cols: number; rows: number; lines: number }): void {
+  const surface = ensureScrollTerm()
+  surface.reset()
+  surface.resize(msg.cols, msg.rows)
+  // Same as the live snapshot: capture-pane separates rows with a bare LF,
+  // which moves down without returning to column 0.
+  surface.write(msg.data.replace(/\r?\n$/, '').replace(/\r?\n/g, '\r\n'))
+  surface.scrollToBottom()
+  el.scrollCount.textContent = `${msg.lines} lines, taken at ${clock(Date.now())}`
+  rescale()
+}
+
+el.scrollBar.addEventListener('click', (event) => {
+  const what = (event.target as HTMLElement | null)?.dataset?.scroll
+  if (!what) return
+  const surface = ensureScrollTerm()
+  if (what === 'top') surface.scrollToTop()
+  if (what === 'bottom') surface.scrollToBottom()
+  if (what === 'up') surface.scrollPages(-1)
+  if (what === 'down') surface.scrollPages(1)
+  if (what === 'refresh') requestScrollback()
+})
+
 // The bozo terminal has to keep the host's exact column count or the live ANSI
 // stream lands in the wrong places, so the whole grid is scaled to fit rather
 // than reflowed.
@@ -258,7 +330,8 @@ function rescale(): void {
     if (!pendingFit) return
     pendingFit = false
     try {
-      fit()
+      fit(el.screen)
+      fit(el.scrollScreen)
     } catch {}
   }
 
@@ -266,17 +339,17 @@ function rescale(): void {
   setTimeout(run, 60)
 }
 
-function fit(): void {
-  const frame = el.screen.querySelector<HTMLElement>('.xterm')
-  const grid = el.screen.querySelector<HTMLElement>('.xterm-screen')
+function fit(host: HTMLElement): void {
+  const frame = host.querySelector<HTMLElement>('.xterm')
+  const grid = host.querySelector<HTMLElement>('.xterm-screen')
   if (!frame || !grid) return
 
   // Bail before touching the transform. Clearing it first and then giving up on
   // an unmeasurable container leaves the terminal permanently unscaled, which
   // is what happens every time a redraw arrives while another panel is open. A
   // hidden panel measures zero, so this covers both.
-  const availableWidth = el.screen.clientWidth - 16
-  const availableHeight = el.screen.clientHeight - 12
+  const availableWidth = host.clientWidth - 16
+  const availableHeight = host.clientHeight - 12
   if (availableWidth <= 0 || availableHeight <= 0) return
 
   frame.style.transform = 'none'
@@ -553,6 +626,9 @@ function handle(msg: ServerMessage): void {
         unseen.f2f++
         renderTabs()
       }
+      break
+    case 'scrollback':
+      applyScrollback(msg)
       break
     case 'accepted':
       el.hint.innerHTML = outboxMode === 'through'

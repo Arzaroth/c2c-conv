@@ -112,6 +112,26 @@ test('host bindings produce no output for tmux to display', { skip: !available }
   }
 })
 
+// The scrollback view is only worth having if it reaches past the pane, which
+// depends on history-limit being set before the pane was created.
+test('a scrollback capture reaches past the visible pane', { skip: !available }, async () => {
+  await tmux.sendText(NAME, 'seq 1 200')
+  await tmux.sendKey(NAME, 'Enter')
+  await settle(700)
+
+  const visible = await tmux.capturePane(NAME)
+  const deep = await tmux.captureScrollback(NAME, 500)
+
+  assert.ok(!visible.includes('\n1\n'), 'line 1 has scrolled off the pane')
+  assert.ok(deep.includes('\n1\n'), 'line 1 is still in the scrollback')
+  assert.ok(deep.split('\n').length > visible.split('\n').length)
+})
+
+test('asking for more scrollback than tmux keeps is not an error', { skip: !available }, async () => {
+  const deep = await tmux.captureScrollback(NAME, tmux.HISTORY_LIMIT * 10)
+  assert.ok(deep.length > 0)
+})
+
 test('the cursor position is readable for seeding a bozo', { skip: !available }, async () => {
   const { x, y } = await tmux.cursor(NAME)
   assert.ok(Number.isInteger(x) && x >= 0)

@@ -17,6 +17,9 @@ import { controlSocket, ensureStateDir, metaFile, paneFile, statusFile } from '.
 const MAX_PANE_BYTES = Number(process.env.C2C_MAX_PANE_BYTES) || 8 * 1024 * 1024
 const MAX_HISTORY = 500
 
+// How far back the scrollback view reaches when a bozo does not say.
+const DEFAULT_SCROLLBACK = 5000
+
 // How much of the f2f lane a bozo gets on arrival. The rest stays on the
 // ringmaster: the greeting is not the place to ship a whole afternoon of chat.
 const F2F_GREETING = 50
@@ -409,6 +412,11 @@ export class Ringmaster {
       return
     }
 
+    if (msg.type === 'scrollback') {
+      this.#sendScrollback(bozo.channel, msg.lines)
+      return
+    }
+
     if (msg.type === 'key') {
       const result = this.#policy.submitKey({
         key: msg.key,
@@ -533,6 +541,18 @@ export class Ringmaster {
     // tmux message. Their own lines are not echoed back at them.
     if (!host) this.#notifyHost(`f2f ${msg.from}: ${msg.text}`)
     return msg
+  }
+
+  async #sendScrollback(channel: Channel, lines: unknown): Promise<void> {
+    const wanted = Number(lines) > 0 ? Number(lines) : DEFAULT_SCROLLBACK
+    try {
+      const data = await tmux.captureScrollback(this.#session, wanted)
+      const { cols, rows } = await tmux.paneSize(this.#session)
+      if (channel.closed) return
+      channel.sendJson({ type: 'scrollback', data, cols, rows, lines: data.split('\n').length })
+    } catch (err) {
+      console.error(`[scrollback] ${(err as Error)?.message ?? err}`)
+    }
   }
 
   #onPolicyEvent(event: PolicyEvent): void {
