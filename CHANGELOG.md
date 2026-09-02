@@ -9,6 +9,8 @@ than adding to it.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-09-02
+
 ### Added
 
 - `c2c_wait` for the MCP bozo: an agent can block until the session does

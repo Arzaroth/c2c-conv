@@ -1,12 +1,12 @@
 # TODO
 
 What is left, and why each thing is worth doing. Grounded in the code as it
-stands at v0.3.1: the architecture is finished for what it does, so almost
+stands at v0.3.2: the architecture is finished for what it does, so almost
 nothing here is plumbing.
 
-Done since v0.3.0: the f2f lane, the outbox, and the scrollback view. A bozo can
-now talk to the other clowns without going through claude, see what scrolled off
-the pane, and watch its own message wait in a queue that never drops it.
+Done since v0.3.1: `c2c_wait`, so an agent bozo can sit on the socket rather
+than poll the screen, and revocation - `c2c ctl kick` for one bozo, `c2c ctl
+rotate` to replace the token and kill every link already handed out.
 
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#open-work) used to carry a short
 open-work list of its own. It points here now, so there is one of it rather than
