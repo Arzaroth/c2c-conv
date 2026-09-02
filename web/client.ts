@@ -1,6 +1,11 @@
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 
+import { mountCircus, renderCircus } from './circus.js'
+import {
+  laneHere, laneLive, laneMe, laneSaid, laneSeed, laneShown, laneTyping, mountLane,
+} from './lane.js'
+
 const params = new URLSearchParams(location.search)
 const token = params.get('t') || ''
 // Presenting this makes you the whiteface: the clown who runs the ring.
@@ -35,6 +40,15 @@ const el = {
   f2fForm: pick<HTMLFormElement>('f2f-form'),
   f2fText: pick<HTMLInputElement>('f2f-text'),
   f2fToggle: pick<HTMLButtonElement>('f2f-toggle'),
+  laneHere: pick<HTMLDivElement>('lane-here'),
+  laneTyping: pick<HTMLDivElement>('lane-typing'),
+  laneJump: pick<HTMLButtonElement>('lane-jump'),
+  circus: pick<HTMLDivElement>('circus'),
+  circusToggle: pick<HTMLButtonElement>('circus-toggle'),
+  circusList: pick<HTMLDivElement>('circus-list'),
+  circusCount: pick<HTMLSpanElement>('circus-count'),
+  circusRoom: pick<HTMLSpanElement>('circus-room'),
+  circusSwitch: pick<HTMLButtonElement>('circus-switch'),
   scrollback: pick<HTMLDivElement>('scrollback'),
   scrollToggle: pick<HTMLButtonElement>('scroll-toggle'),
   scrollScreen: pick<HTMLDivElement>('scroll-screen'),
@@ -46,56 +60,56 @@ const el = {
 // Not "history": this is a plain script, so a top-level binding by that name
 // would be shadowing window.history.
 const turns: TranscriptEntry[] = []
-const lane: F2fMessage[] = []
 
-// Four surfaces, one at a time, and the live mirror is what is underneath them
-// all. The scrollback is a snapshot rather than a fifth thing the pane stream
+// Five surfaces, one at a time, and the live mirror is what is underneath them
+// all. The scrollback is a snapshot rather than a sixth thing the pane stream
 // writes into: the mirror pins its cursor to a fixed grid, so a view that
 // scrolls cannot be the same surface without every later redraw landing a row
 // off.
-type Panel = 'history' | 'f2f' | 'scroll'
+type Panel = 'circus' | 'history' | 'f2f' | 'scroll'
 type View = 'live' | Panel
 
 const PANELS: { name: Panel; label: string; tab: HTMLButtonElement; panel: HTMLElement }[] = [
+  { name: 'circus', label: 'circus', tab: el.circusToggle, panel: el.circus },
   { name: 'f2f', label: 'f2f', tab: el.f2fToggle, panel: el.f2f },
   { name: 'history', label: 'history', tab: el.historyToggle, panel: el.history },
   { name: 'scroll', label: 'scrollback', tab: el.scrollToggle, panel: el.scrollback },
 ]
 
 let showing: View = 'live'
-const unseen: Record<Panel, number> = { history: 0, f2f: 0, scroll: 0 }
+const unseen: Record<Panel, number> = { circus: 0, history: 0, f2f: 0, scroll: 0 }
 
 function renderTabs(): void {
   for (const { name, label, tab } of PANELS) {
     tab.classList.toggle('on', showing === name)
     tab.textContent = label
-    const count = unseen[name]
-    if (showing !== name && count) {
-      const badge = document.createElement('span')
-      badge.className = 'count'
-      badge.textContent = count > 99 ? '99+' : String(count)
-      tab.appendChild(badge)
-    }
+    // The circus badge counts who is here rather than what you missed, so it
+    // stays up while its own panel is open.
+    const here = name === 'circus' && roster.length
+    const count = here || (showing === name ? 0 : unseen[name])
+    if (!count) continue
+    const badge = document.createElement('span')
+    badge.className = here ? 'count here' : 'count'
+    badge.textContent = count > 99 ? '99+' : String(count)
+    tab.appendChild(badge)
   }
 }
 
 function setView(next: View): void {
+  const leavingLane = showing === 'f2f' && next !== 'f2f'
   showing = next
   el.screen.hidden = next !== 'live'
   for (const { name, panel } of PANELS) panel.hidden = name !== next
 
+  if (leavingLane) laneShown(false)
   if (next === 'live') rescale()
+  if (next === 'circus') drawCircus()
   if (next === 'history') {
     unseen.history = 0
     renderHistory()
     el.history.scrollTop = el.history.scrollHeight
   }
-  if (next === 'f2f') {
-    unseen.f2f = 0
-    renderLane()
-    el.f2fScroll.scrollTop = el.f2fScroll.scrollHeight
-    el.f2fText.focus()
-  }
+  if (next === 'f2f') laneShown(true)
   // A snapshot is only worth what it was worth when it was taken, so opening
   // the tab always asks for a fresh one.
   if (next === 'scroll') {
@@ -164,54 +178,23 @@ function renderHistory(): void {
   for (const entry of turns) el.historyList.appendChild(turnElement(entry))
 }
 
-/* ── farce-to-farce ───────────────────────────────────────────────────────── */
+/* ── who is in the circus ─────────────────────────────────────────────────── */
 
-function lineElement(msg: F2fMessage): HTMLDivElement {
-  const row = document.createElement('div')
-  row.className = `line${msg.host ? ' host' : msg.from === bozoName ? ' mine' : ''}`
+let roster: RosterEntry[] = []
+let roomMode: Mode = 'gallery'
 
-  const from = document.createElement('span')
-  from.className = 'from'
-  from.textContent = msg.from
-
-  const said = document.createElement('span')
-  said.className = 'said'
-  said.textContent = msg.text
-
-  const at = document.createElement('span')
-  at.className = 'at'
-  at.textContent = clock(msg.at)
-
-  row.append(from, said, at)
-  return row
+function drawCircus(): void {
+  renderCircus({ mode: roomMode, bozos: roster, me: myId, whiteface })
 }
 
-function appendLine(msg: F2fMessage): void {
-  const atBottom = el.f2fScroll.scrollTop + el.f2fScroll.clientHeight >= el.f2fScroll.scrollHeight - 40
-  el.f2fList.querySelector('.lane-empty')?.remove()
-  el.f2fList.appendChild(lineElement(msg))
-  if (atBottom) el.f2fScroll.scrollTop = el.f2fScroll.scrollHeight
+function setRoster(next: { mode: Mode; bozos: RosterEntry[] }): void {
+  roster = next.bozos
+  roomMode = next.mode
+  drawCircus()
+  laneHere(roster)
+  renderTabs()
+  refreshHint()
 }
-
-function renderLane(): void {
-  el.f2fList.replaceChildren()
-  if (!lane.length) {
-    const empty = document.createElement('div')
-    empty.className = 'lane-empty'
-    empty.textContent = 'Nobody has said anything yet. Claude will not hear any of it.'
-    el.f2fList.appendChild(empty)
-    return
-  }
-  for (const msg of lane) el.f2fList.appendChild(lineElement(msg))
-}
-
-el.f2fForm.addEventListener('submit', (event) => {
-  event.preventDefault()
-  const text = el.f2fText.value.trim()
-  if (!text) return
-  send({ type: 'f2f', text })
-  el.f2fText.value = ''
-})
 
 el.mode.addEventListener('click', () => {
   if (whiteface) send({ type: 'mode', mode: 'toggle' })
@@ -376,8 +359,11 @@ addEventListener('resize', rescale)
 const pending = new Map<number, { id: number; text: string; bozo?: string }>()
 let outbox: OutboxEntry[] = []
 let outboxMode: OutboxMode = 'drain'
+// This is what YOU may do, which is the room default until the host trusts you
+// personally. The room's own default rides the roster.
 let mode: Mode = 'gallery'
 let whiteface = false
+let myId = ''
 let socket: WebSocket | null = null
 let retry = 500
 let ended = false
@@ -386,10 +372,23 @@ function setMode(next: Mode): void {
   mode = next
   el.mode.className = `badge ${next}`
   el.modeText.textContent = next === 'yolo' ? 'YOLO' : 'GALLERY'
-  el.hint.innerHTML = next === 'yolo'
+  refreshHint()
+  refreshKeypad()
+}
+
+// The hint says what you may do and, when the host has singled you out, that it
+// is you rather than the room: the difference matters when the room changes
+// under you and nothing about your own badge moves.
+function refreshHint(): void {
+  const trusted = roster.find((bozo) => bozo.id === myId)?.trusted
+  if (whiteface) {
+    el.hint.innerHTML = 'You are the <b>whiteface</b>. You run the ring: release, drop, trust, switch mode.'
+    return
+  }
+  const yours = mode === 'yolo'
     ? 'Straight through. What you send lands as if the host typed it.'
     : 'The host has to <b>release</b> anything you send.'
-  refreshKeypad()
+  el.hint.innerHTML = trusted ? `${yours} The host put you in <b>${mode}</b> personally.` : yours
 }
 
 function send(payload: BozoMessage): void {
@@ -400,6 +399,7 @@ function setLink(up: boolean): void {
   el.link.textContent = up ? 'live' : 'offline'
   el.link.className = `badge link${up ? '' : ' down'}`
   el.send.disabled = !up
+  laneLive(up)
 }
 
 function renderPending(): void {
@@ -543,7 +543,12 @@ function handle(msg: ServerMessage): void {
   switch (msg.type) {
     case 'hoink':
       paneState = msg.state ?? 'unknown'
-      if (msg.name) el.who.value = msg.name
+      if (msg.name) {
+        bozoName = msg.name
+        el.who.value = msg.name
+        laneMe(bozoName)
+      }
+      myId = msg.bozoId
       whiteface = Boolean(msg.whiteface)
       document.body.classList.toggle('whiteface', whiteface)
       if (msg.pending) {
@@ -553,18 +558,19 @@ function handle(msg: ServerMessage): void {
       outbox = msg.outbox ?? []
       outboxMode = msg.outboxMode ?? 'drain'
       renderOutbox()
-      lane.length = 0
-      lane.push(...(msg.f2f ?? []))
-      if (showing === 'f2f') renderLane()
-      else unseen.f2f = lane.length
+      laneSeed(msg.f2f ?? [])
       renderTabs()
       setMode(msg.mode)
-      if (whiteface) {
-        el.hint.innerHTML = 'You are the <b>whiteface</b>. You run the ring: release, drop, switch mode.'
-      }
       renderPending()
       term.resize(msg.cols, msg.rows)
       rescale()
+      tellHere()
+      break
+    case 'roster':
+      setRoster(msg)
+      break
+    case 'typing':
+      laneTyping(msg.name)
       break
     case 'state':
       paneState = msg.state
@@ -593,7 +599,9 @@ function handle(msg: ServerMessage): void {
       rescale()
       break
     case 'named':
+      bozoName = msg.name
       el.who.value = msg.name
+      laneMe(bozoName)
       break
     case 'pending':
     case 'policy:queued':
@@ -620,12 +628,7 @@ function handle(msg: ServerMessage): void {
       renderOutbox()
       break
     case 'f2f':
-      lane.push(msg.msg)
-      if (showing === 'f2f') appendLine(msg.msg)
-      else {
-        unseen.f2f++
-        renderTabs()
-      }
+      laneSaid(msg.msg, msg.nonce)
       break
     case 'scrollback':
       applyScrollback(msg)
@@ -678,6 +681,39 @@ el.form.addEventListener('submit', (event) => {
 let bozoName = localStorage.getItem('c2c-name') || 'bozo'
 el.who.value = bozoName
 
+/* ── presence ─────────────────────────────────────────────────────────────── */
+
+// Connected is not the same as watching, and the lane is worth much less if you
+// cannot tell the two apart. A hidden tab is idle at once; an open one goes
+// idle after a minute of nobody touching anything.
+const IDLE_MS = 60_000
+let lastPoke = Date.now()
+let away = false
+
+function tellHere(): void {
+  send({ type: 'here', idle: away })
+}
+
+function setAway(next: boolean): void {
+  if (away === next) return
+  away = next
+  tellHere()
+}
+
+for (const event of ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const) {
+  addEventListener(event, () => {
+    lastPoke = Date.now()
+    setAway(false)
+  }, { passive: true })
+}
+
+document.addEventListener('visibilitychange', () => {
+  lastPoke = Date.now()
+  setAway(document.hidden)
+})
+
+setInterval(() => setAway(document.hidden || Date.now() - lastPoke > IDLE_MS), 5000)
+
 // HOINK is the greeting: the bozo announces itself and the ringmaster hoinks
 // back with the mode, the pane size and the current screen.
 function hoink(): void {
@@ -692,9 +728,30 @@ el.who.addEventListener('change', () => {
   bozoName = el.who.value.trim() || 'bozo'
   el.who.value = bozoName
   localStorage.setItem('c2c-name', bozoName)
+  laneMe(bozoName)
   announce()
 })
 
+mountCircus(
+  { list: el.circusList, count: el.circusCount, room: el.circusRoom, toggle: el.circusSwitch },
+  send,
+)
+mountLane(
+  {
+    scroll: el.f2fScroll,
+    list: el.f2fList,
+    form: el.f2fForm,
+    input: el.f2fText,
+    here: el.laneHere,
+    typing: el.laneTyping,
+    jump: el.laneJump,
+  },
+  { send, unseen: (count) => { unseen.f2f = count; renderTabs() } },
+)
+
+laneMe(bozoName)
+laneHere([])
+drawCircus()
 renderTabs()
 setMode('gallery')
 setLink(false)
