@@ -9,6 +9,24 @@ than adding to it.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The scrollback tab stops offering paging it cannot do.** It presented `top`,
+  `page up`, `page down` and `bottom` over a buffer that was always exactly the
+  visible pane, so the buttons and the scrollbar moved nothing and there was no
+  way to tell that from a broken view. claude draws full screen, and tmux keeps
+  no history for a pane on the alternate screen, so `capture-pane -S -5000`
+  could only ever return what was already on screen - in every session c2c
+  hosts, not just some. The snapshot now says what it is and greys out the
+  paging; the conversation is in the **history** tab, which is built from the
+  transcript and never depended on the pane.
+- **`history-limit` is actually applied.** `set-option` ran against a tmux
+  socket that did not exist yet, failed into a swallowed `catch`, and
+  `new-session` then started the server on the tmux default of 2000. The 10000
+  lines the code asked for had never reached a pane. Invisible until now
+  because the alternate screen keeps none of them either, but it decided how
+  far back any non-claude pane could reach.
+
 ## [0.3.5] - 2026-10-27
 
 ### Added

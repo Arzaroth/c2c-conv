@@ -270,7 +270,9 @@ function requestScrollback(): void {
   send({ type: 'scrollback', lines: 5000 })
 }
 
-function applyScrollback(msg: { data: string; cols: number; rows: number; lines: number }): void {
+function applyScrollback(
+  msg: { data: string; cols: number; rows: number; lines: number; history: number; alternate: boolean },
+): void {
   const surface = ensureScrollTerm()
   surface.reset()
   surface.resize(msg.cols, msg.rows)
@@ -278,7 +280,16 @@ function applyScrollback(msg: { data: string; cols: number; rows: number; lines:
   // which moves down without returning to column 0.
   surface.write(msg.data.replace(/\r?\n$/, '').replace(/\r?\n/g, '\r\n'))
   surface.scrollToBottom()
-  el.scrollCount.textContent = `${msg.lines} lines, taken at ${clock(Date.now())}`
+  // Buttons that cannot move anything read as a broken view rather than an
+  // empty one, and a bozo has no way to tell those two apart.
+  for (const button of el.scrollBar.querySelectorAll<HTMLButtonElement>('button[data-scroll]')) {
+    if (button.dataset.scroll !== 'refresh') button.disabled = msg.history <= 0
+  }
+  el.scrollCount.textContent = msg.history > 0
+    ? `${msg.lines} lines, taken at ${clock(Date.now())}`
+    : msg.alternate
+      ? 'the pane and nothing above it: claude draws full screen, and tmux keeps no history for that. The conversation is in history.'
+      : `${msg.lines} lines, taken at ${clock(Date.now())}. Nothing has scrolled off yet.`
   rescale()
 }
 

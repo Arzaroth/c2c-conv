@@ -373,10 +373,8 @@ mirror is unaffected and the tab simply stays empty.
 
 ## Scrollback
 
-The mirror is the pane, and the pane is what fits on screen. Everything above it
-- the tool output, the diffs, the error you scrolled past - is in the **scrollback**
-tab: a snapshot of the pane plus its history, which you can scroll, page through
-and refresh.
+The **scrollback** tab is a snapshot of the pane plus whatever tmux has kept
+above it, which you can scroll, page through and refresh.
 
 It is deliberately a separate surface rather than scrollback on the live mirror.
 The mirror renders a byte stream that positions its cursor relative to a fixed
@@ -384,7 +382,16 @@ grid, so anything that scrolls it puts every later redraw a row off. A snapshot
 cannot do that: it is taken when you open the tab, and stops being live the
 moment it arrives. `refresh` takes another one.
 
-tmux keeps 10000 lines per pane, which is the ceiling on how far back it reaches.
+**How far back it reaches depends on what the pane is running, and against claude
+the answer is nowhere.** tmux keeps 10000 lines of history for an ordinary pane,
+and none at all for a program that draws full screen, which is what claude does.
+So the snapshot of a claude session is the pane and nothing above it: the tab
+says so and greys out the paging rather than offering buttons with nothing to
+move. The conversation itself is in the **history** tab, which is built from the
+transcript and does not depend on the pane at all.
+
+The tab still earns its place: the snapshot is the whole pane at readable size,
+and it holds still while the mirror keeps repainting.
 
 ## The f2f lane
 

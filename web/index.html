@@ -511,7 +511,8 @@
     font-weight: 700;
     cursor: pointer;
   }
-  .scroll-bar button:hover { border-color: var(--wig-5); }
+  .scroll-bar button:not(:disabled):hover { border-color: var(--wig-5); }
+  .scroll-bar button:disabled { opacity: 0.4; cursor: default; }
   #scroll-screen {
     flex: 1;
     min-height: 0;
