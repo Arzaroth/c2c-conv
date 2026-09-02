@@ -3,13 +3,14 @@
   "version": "0.2.0",
   "description": "Share one Claude Code session with a second person, live",
   "type": "module",
+  "packageManager": "pnpm@11.21.0",
   "bin": {
     "c2c": "dist/src/cli.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.web.json && chmod +x dist/src/cli.js dist/bigtop/server.js",
     "check": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.web.json",
-    "test": "npm run build && node --test \"dist/test/*.test.js\""
+    "test": "pnpm run build && node --test \"dist/test/*.test.js\""
   },
   "engines": {
     "node": ">=20"

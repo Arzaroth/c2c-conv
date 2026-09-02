@@ -36,9 +36,9 @@ code harder to map onto them.
 
 ## Requirements
 
-`tmux`, `node >= 20`, and `claude` on PATH. Nothing ships as a runtime
-dependency: the only thing `npm install` fetches is TypeScript and the node
-type definitions, and neither is present by the time anything runs.
+`tmux`, `node >= 20`, `pnpm`, and `claude` on PATH. Nothing ships as a
+runtime dependency: the only thing `pnpm install` fetches is TypeScript and the
+node type definitions, and neither is present by the time anything runs.
 
 ## Build and install
 
@@ -47,12 +47,11 @@ The source is TypeScript, so there is a compile step. `src/`, `bigtop/` and
 the ringmaster serves to a browser. Both are gitignored.
 
 ```sh
-npm install                        # typescript and @types/node, dev only
-mise trust && mise run install     # builds, then symlinks ~/.local/bin/c2c
+mise trust && mise run install     # pnpm install, build, then symlink ~/.local/bin/c2c
 c2c --version                      # 0.2.0 (f893bae), and which checkout it points at
 ```
 
-`mise tasks` lists the rest: `build`, `test`, `check`, `host`, `local`,
+`mise tasks` lists the rest: `deps`, `build`, `test`, `check`, `host`, `local`,
 `bigtop`, `zavatta`, `status`, `invite`, `stop`, `uninstall`, `docker:build`,
 `docker:host`. Everything that runs code builds first, so there is no
 stale-`dist/` trap.
@@ -60,8 +59,9 @@ stale-`dist/` trap.
 `mise run check` type-checks both builds without emitting. There is no separate
 lint step: the compiler is the lint step.
 
-Without mise, `npm run build` then `ln -s "$PWD/dist/src/cli.js" ~/.local/bin/c2c`,
-or `npm link`, or just run `node dist/src/cli.js` wherever the docs say `c2c`.
+Without mise, `pnpm install && pnpm run build` then
+`ln -s "$PWD/dist/src/cli.js" ~/.local/bin/c2c`, or `pnpm link --global`, or just
+run `node dist/src/cli.js` wherever the docs say `c2c`.
 
 Because it is normally a symlink into a checkout, `c2c --version` reports the
 commit as well as the release, and marks it `-dirty` when the working tree has

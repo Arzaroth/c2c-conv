@@ -1,28 +1,24 @@
 [tools]
 node = "24"
+pnpm = "11"
+
+[tasks.deps]
+description = "Install the dev dependencies (pnpm)"
+run = 'cd "{{config_root}}" && pnpm install'
 
 # TypeScript now, so there is a compile step: sources in src/, bigtop/ and
 # test/ build to dist/, and web/client.ts builds in place to the client.js the
-# ringmaster serves. Everything that runs code depends on it.
+# ringmaster serves. Everything that runs code depends on it. The steps live in
+# package.json so there is one definition of the build.
 [tasks.build]
 description = "Compile TypeScript to dist/ and web/client.js"
-run = """
-cd "{{config_root}}"
-npm exec --no -- tsc -p tsconfig.json
-npm exec --no -- tsc -p tsconfig.web.json
-# tsc keeps the shebang but not the mode bit, and c2c is normally a symlink to
-# dist/src/cli.js. Without this every rebuild breaks whatever is on PATH.
-chmod +x dist/src/cli.js dist/bigtop/server.js
-"""
+depends = ["deps"]
+run = 'cd "{{config_root}}" && pnpm run build'
 
 [tasks.check]
 description = "Type-check everything without emitting"
-run = """
-cd "{{config_root}}"
-npm exec --no -- tsc --noEmit -p tsconfig.json
-npm exec --no -- tsc --noEmit -p tsconfig.web.json
-echo "everything type-checks"
-"""
+depends = ["deps"]
+run = 'cd "{{config_root}}" && pnpm run check && echo "everything type-checks"'
 
 [tasks.install]
 description = "Put c2c on your PATH (~/.local/bin/c2c)"

@@ -14,7 +14,7 @@ RUN apt-get update \
  && apt-get autoremove -y \
  && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g @anthropic-ai/claude-code
+RUN npm install -g @anthropic-ai/claude-code pnpm@11.21.0
 
 # The bind mounts have to be writable by whoever runs inside, so the image
 # user takes the host user's ids at build time.
@@ -23,13 +23,14 @@ RUN userdel -r node \
  && useradd -m -u "$UID" -g "$GID" -s /bin/bash c2c
 
 # Built inside the image rather than copied in, so the image never depends on
-# whatever happens to be in the host's dist/. npm prune drops typescript again:
-# it is the only thing installed, and nothing needs it at runtime.
+# whatever happens to be in the host's dist/. Every dependency is a dev one, so
+# pruning for production empties node_modules again, and the store goes too.
 COPY --chown=c2c:c2c . /opt/c2c-conv
 RUN cd /opt/c2c-conv \
- && npm ci \
- && npm run build \
- && npm prune --omit=dev --no-save \
+ && pnpm install --frozen-lockfile \
+ && pnpm run build \
+ && pnpm prune --prod \
+ && rm -rf "$(pnpm store path)" /root/.cache/pnpm \
  && ln -s /opt/c2c-conv/dist/src/cli.js /usr/local/bin/c2c
 
 USER c2c
