@@ -58,8 +58,18 @@ rather than once per bozo.
 
 **Policy** (`src/policy.ts`)
 The mode ladder. `gallery` (default) queues bozo submissions for host
-approval; `ring` injects them immediately. Mode lives only in the ringmaster and is
+approval; `ring` clears them immediately. Mode lives only in the ringmaster and is
 only mutable through the host's control socket, so a bozo can never self-promote.
+
+**Outbox** (`src/outbox.ts`)
+Everything the policy clears, delivered one at a time. The policy decides whether
+a message may be sent; the outbox decides when it lands. It is the only writer of
+text to the pane, so serialisation is structural rather than a promise chain, and
+a pane that is not ready blocks the queue instead of losing what was at the head.
+
+**Farce** (`src/f2f.ts`)
+The f2f lane: a bounded ring of what the clowns have said to each other. It has
+no path to the pane at all, which is the feature rather than an omission.
 
 **Websocket** (`src/ws.ts`)
 RFC 6455 server implemented directly on `node:http` upgrades. No runtime
@@ -70,6 +80,9 @@ Read-only xterm.js mirror plus a compose box and a keypad. The terminal has
 `disableStdin`, so the only way a bozo reaches the session is through the policy
 gate. vite bundles the page, the client and xterm into `dist/web`, which is what
 both servers serve: a bozo's browser loads nothing from a CDN.
+
+Three panels sit over the mirror - history, f2f and scrollback - and the
+scrollback one is a second xterm fed single snapshots, never the live stream.
 
 ## Two channels, not one
 
@@ -163,10 +176,13 @@ anywhere with the token, so bozo input is bounded at both layers:
   fragments that only exceed the cap once reassembled all close the connection.
 - **Messages are capped at 8000 characters.** Longer than that is not a prompt
   somebody typed.
-- **The pending queue is capped at 50.** It is the one thing a bozo can grow
-  without the host agreeing to anything, so it cannot be unbounded. Verified
-  against a live ringmaster with a declared 4GiB frame: connection closed, resident
-  memory unchanged, ringmaster healthy.
+- **The pending queue is capped at 50**, and so is the outbox. They are the two
+  things a bozo can grow without the host agreeing to anything, so neither can be
+  unbounded. Verified against a live ringmaster with a declared 4GiB frame:
+  connection closed, resident memory unchanged, ringmaster healthy.
+- **The f2f lane is capped at 2000 characters a line and 200 lines kept.** It
+  reaches nothing but other browsers, so the cap is about memory rather than
+  safety.
 
 ## Security model
 
@@ -185,7 +201,9 @@ dialog was up, and the trailing Enter selected `No, exit` and killed the session
 The same mechanism would let an innocuous-looking bozo message confirm a
 permission prompt, which would defeat the whole point of gallery mode. So every
 write path goes through `tmux.waitForPrompt` first: it waits out a running turn,
-but refuses outright on a dialog and tells the host the message was held.
+and on a dialog it puts the message back in the outbox rather than typing it.
+`--outbox through` deliberately relaxes only the busy case, never the dialog one:
+claude queues what is typed mid-turn, and a modal still swallows it.
 
 State detection reads an *uncoloured* `capture-pane`. With `-e`, tmux wraps each
 individual word in its own SGR pair, so phrase matching silently never matches.
@@ -202,12 +220,13 @@ Two writers on one pty interleave. Concretely: the host is mid-typing
 the half-written line, and the trailing Enter submits something neither of them
 wrote. Three mechanisms stop that:
 
-**A write queue.** Every text injection is serialised behind the last one. Keys
-skip the queue deliberately: they are single atomic keystrokes and should not
-wait out a text injection's timeout.
+**The outbox.** Every text injection is serialised behind the last one, because
+only the head of the outbox is ever written. Keys skip the queue deliberately:
+they are single atomic keystrokes and should not wait out a text injection.
 
-**A draft guard.** Before injecting, the ringmaster reads the input box. Anything in
-it is the host's unsent draft, so the message is held and the host is told why.
+**A draft guard.** Before injecting, the ringmaster reads the input box. Anything
+in it is the host's unsent draft, so the message stays in the outbox with its
+reason on it, and the host is told once - not once per attempt.
 
 **A settle step.** `send-keys` returns once tmux has queued the keys, well
 before the session renders them. Without waiting for the box to read empty twice
@@ -216,6 +235,19 @@ as a phantom draft. This cost two wrong fixes before the cause was clear.
 
 What remains unhandled is the host starting to type in the same instant an
 injection lands. That needs a lock the TUI does not offer.
+
+## Why a message is never dropped for being busy
+
+The first version injected on approval and gave up after a timeout, with a tmux
+notice saying the message was held. That is the worst failure this design can
+have: the bozo was told the message went through, the host saw a notice scroll
+past, and the words existed nowhere afterwards.
+
+The outbox inverts it. Blocked means *not yet*, forever, and the reason is on the
+entry where everybody can read it. Only two things lose a message - a dead pane
+and a failed write - and both are loud on every surface at once. The retry says
+why once per change of reason rather than every 400ms, because a notice that
+repeats is a notice nobody reads.
 
 ## The tmux server is isolated
 
@@ -261,6 +293,18 @@ than spawning a node process every couple of seconds the way a `#(c2c ctl ...)`
 status command would. tmux only runs `#()` jobs while a client is attached, so
 it costs nothing when the host is detached.
 
+## Scrollback is a snapshot, not a surface
+
+The mirror renders a byte stream that positions the cursor relative to a fixed
+grid, which is why `web/client.ts` sets `scrollback: 0` on the live terminal:
+scrolling it puts every subsequent redraw a row out. So the scrollback view is a
+second xterm, fed `capture-pane -p -e -S -N` on request and nothing else. It goes
+stale the moment it arrives, which is honest, and `refresh` takes another.
+
+`history-limit` is set on the tmux server before the session is created. A pane
+takes its limit at creation and ignores the option afterwards, so setting it any
+later would silently give a 2000-line ceiling.
+
 ## Reading the screen
 
 Pane state and the draft both come from parsing a plain `capture-pane`, and both
@@ -292,6 +336,23 @@ reintroducing the bug and confirming the test goes red - one of them did not,
 and was rewritten until it did. tmux falls back to literal text for anything it
 does not recognise as a key name, so the literal-send test only bites when the
 payload is exactly a key name like `C-u`.
+
+## The lane claude cannot hear
+
+Everything else in this design exists to get a bozo's words *into* the session
+under a gate. The f2f lane is the opposite: a surface whose entire specification
+is that it has no path to the pane. It is not gated, not queued, not transcribed,
+and the ringmaster never calls `tmux.submit` for it.
+
+That is worth stating because the temptation is to route it through the same
+machinery with a flag. A flag can be wrong. A lane with no code path to the pane
+cannot be.
+
+The host is the awkward half: they have no browser panel, so a bozo's line
+arrives as `tmux display-message` and their own goes back through `c2c say` on
+the control socket. Which is also why `notify` doubles every `#` before handing
+it to tmux - `display-message` expands `#{...}` formats, and most of what it
+carries is a bozo's name or a bozo's words.
 
 ## The whiteface
 

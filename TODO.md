@@ -2,8 +2,11 @@
 
 What is left, and why each thing is worth doing. Grounded in the code as it
 stands at v0.3.0: the architecture is finished for what it does, so almost
-nothing here is plumbing. What is missing is that a bozo is still a thin
-participant.
+nothing here is plumbing.
+
+Done since v0.3.0: the f2f lane, the outbox, and the scrollback view. A bozo can
+now talk to the other clowns without going through claude, see what scrolled off
+the pane, and watch its own message wait in a queue that never drops it.
 
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#open-work) used to carry a short
 open-work list of its own. It points here now, so there is one of it rather than
@@ -52,26 +55,11 @@ in `src/policy.ts` collapses whitespace before injection, so matching a user tur
 back to a submission is fuzzy. Log at the ringmaster, where the attribution is
 already in hand.
 
-*Touches:* `src/policy.ts` events, `src/ringmaster.ts`, `src/transcript.ts`,
-`web/client.ts`.
+The outbox is the other half of this: it already knows who sent what and when
+it actually landed, which is the attribution the transcript cannot give you.
 
-## The heckle channel
-
-**M.** A chat lane between bozos and the host that never reaches claude.
-
-*Why.* Every word a bozo types today is a candidate prompt. "wait, do not run
-that" has to either go through the gate into the session or not be said at all,
-and host to bozo is a `tmux display-message` notice with no reply path. Two
-clowns share a session and cannot say anything to each other that does not go
-through claude. It is the one gap where the product's name is a promise it does
-not keep.
-
-*Risk.* The host has no surface but the pane. Either a tmux popup, an unread
-count on the status line, or accept that the whiteface panel is where the host
-reads it - which is honest now that the container rung makes headless the normal
-way to run one.
-
-*Touches:* `src/ringmaster.ts`, `web/client.ts`, `web/index.html`, `src/tmux.ts`.
+*Touches:* `src/policy.ts` events, `src/outbox.ts` events, `src/ringmaster.ts`,
+`src/transcript.ts`, `web/client.ts`.
 
 ## `c2c resume`
 
@@ -87,6 +75,18 @@ the URL costs the most.
 *Touches:* `src/ringmaster.ts` (`#writeMeta`, `start`), `src/cli.ts`,
 `src/paths.ts`, `src/whiteface.ts`.
 
+## Say who is in the lane
+
+**S.** The f2f lane has no presence: you cannot tell whether the person you are
+talking to is still there, and a line typed into an empty room looks the same as
+one that was read.
+
+*Why.* The lane exists so a bozo can say "wait, do not run that" before it
+matters. Not knowing whether anyone is on the other end is most of the value of
+a chat surface, and `#bozos` already holds exactly who is connected.
+
+*Touches:* `src/ringmaster.ts` (`#onGuest`, `#hoink`), `web/client.ts`.
+
 ## Per-bozo trust, not one switch
 
 **M.** Elevate one person to the ring without elevating the other twenty-nine.
@@ -98,22 +98,6 @@ with an audience, which is what thirty implies. The queue entries already carry
 
 *Touches:* `src/policy.ts`, `src/ringmaster.ts` (`#onGuestMessage`),
 `c2c ctl mode <bozo>`, `web/client.ts`.
-
-## Scrollback, as a snapshot mode
-
-**M.** `web/client.ts` sets `scrollback: 0` deliberately. The way in is not
-xterm scrollback but a read-only view built from `capture-pane -p -S -<N>`,
-toggled like the history tab.
-
-*Why.* Joining late means the history tab covers the conversation but not the
-terminal, and the terminal is where the tool output, the diffs and the errors
-are.
-
-*Risk.* The mirror's correctness rests entirely on relative cursor positioning
-against a fixed grid. A scrollback view has to be a separate surface, never the
-live one, or every redraw after it lands off by rows.
-
-*Touches:* `src/tmux.ts`, `src/ringmaster.ts`, `web/client.ts`.
 
 ## `--cols` and `--rows`
 
@@ -148,9 +132,8 @@ By value against effort:
 
 1. Add CI - the integration tests run nowhere automatic
 2. Attribution and an audit log - closes the hole the security model opens
-3. The heckle channel - the biggest gap in the actual experience
-4. `c2c resume`
-5. Per-bozo trust
+3. `c2c resume`
+4. Per-bozo trust
+5. Who is in the lane
 6. `--cols` / `--rows`
-7. Scrollback
-8. Replay
+7. Replay

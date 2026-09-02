@@ -21,6 +21,8 @@ It is a circus, but the names are load-bearing rather than decorative:
 | **bozo** | your guest. The premise is clown to clown, so there are two of you |
 | **the gallery** | the cheap seats. A bozo watches and can heckle, but cannot act |
 | **yolo** | the other mode. A bozo in yolo types as you do, with your permissions |
+| **f2f** | farce-to-farce: the lane between the clowns. Claude never hears it |
+| **the outbox** | what is cleared to send and waiting for the session to be free |
 | **HOINK** | the greeting. A bozo hoinks its name, the ringmaster hoinks back |
 
 `yolo` kept its name on purpose. The circus word for it was `ring`, which reads
@@ -154,9 +156,10 @@ safe path.
 There is a full CLI too, for scripting or a second window:
 
 ```
-c2c ctl status            # who is connected, what is waiting
+c2c ctl status            # who is connected, what is waiting, what is going in
 c2c ctl approve 3         # release a specific message
 c2c ctl deny 3
+c2c ctl cancel o2         # pull one back out of the outbox
 ```
 
 ## Headless: web only, nobody at the terminal
@@ -259,7 +262,9 @@ safe. Elevate for people you would hand your actual keyboard to.
 | `c2c host [-s NAME] [-p PORT] [--bind ADDR] [--bigtop URL] [--room NAME] [--cwd DIR] [-- args]` | start a shared session |
 | `c2c attach [-s NAME]` | reattach your terminal |
 | `c2c invite [-s NAME]` | reprint the bozo instructions |
+| `c2c say <text>` | post a line to the f2f lane |
 | `c2c ctl <status\|list\|mode\|approve\|deny\|approve-all\|deny-all>` | host control |
+| `c2c ctl <outbox\|cancel ID\|cancel-all\|bump ID\|say TEXT>` | the outbox and the lane |
 | `c2c stop [-s NAME]` | tear it down |
 | `c2c bigtop [-p PORT] [--bind ADDR]` | run a bigtop |
 
@@ -278,6 +283,64 @@ It is built from Claude Code's own session transcript, which is an undocumented
 file format, so it is treated as strictly optional. If it cannot be read the
 mirror is unaffected and the tab simply stays empty.
 
+## Scrollback
+
+The mirror is the pane, and the pane is what fits on screen. Everything above it
+- the tool output, the diffs, the error you scrolled past - is in the **scrollback**
+tab: a snapshot of the pane plus its history, which you can scroll, page through
+and refresh.
+
+It is deliberately a separate surface rather than scrollback on the live mirror.
+The mirror renders a byte stream that positions its cursor relative to a fixed
+grid, so anything that scrolls it puts every later redraw a row off. A snapshot
+cannot do that: it is taken when you open the tab, and stops being live the
+moment it arrives. `refresh` takes another one.
+
+tmux keeps 10000 lines per pane, which is the ceiling on how far back it reaches.
+
+## The f2f lane
+
+*farce-to-farce.* Two people sharing a session could not, until now, say anything
+to each other that did not go through claude. Every word a bozo typed was a
+candidate prompt, so "wait, do not run that" had to either become a message to
+the session or not be said at all.
+
+The **f2f** tab is a chat lane between the clowns. Nothing in it is injected,
+queued or transcribed - it never touches the pane, which is the whole point:
+clown to clown is what claude hears, and this is not that.
+
+The host has no browser panel, so their side is the terminal:
+
+```sh
+c2c say "on it, hands off the keyboard"
+```
+
+A bozo's line arrives in the pane as a tmux message. An unread count sits on the
+tab for everyone else.
+
+## The outbox
+
+Being cleared to send is not the same as being sent. Everything past the gate -
+straight through in yolo, or released by you in gallery - lands in the **outbox**,
+which delivers one message at a time and waits for the session to finish the last
+turn before starting the next.
+
+Everyone can see it, along with their own place in the line, and why the head is
+not moving (the session is working, you have a draft in the prompt box, a dialog
+is up). The whiteface can pull one back out or move one to the front.
+
+The point is that nothing is dropped for being busy. Before this, a message
+arriving while claude was working was held and discarded with a notice, which is
+the one failure this design cannot afford: everybody was told it was sent.
+
+```sh
+c2c host --outbox through
+```
+
+The other way: type into a working session and let claude do the queueing, so the
+messages land in its own queue and show up in its UI. Faster, and nothing can be
+cancelled once it is in. `drain` is the default.
+
 ## Letting an AI join
 
 A second agent can join as a bozo, under exactly the same gate as a person:
@@ -287,9 +350,10 @@ A second agent can join as a bozo, under exactly the same gate as a person:
 { "mcpServers": { "c2c": { "command": "node", "args": ["/path/to/c2c-conv/dist/src/cli.js", "mcp"] } } }
 ```
 
-It gets five tools: `c2c_screen` (the session right now, as plain text),
+It gets seven tools: `c2c_screen` (the session right now, as plain text),
 `c2c_history` (the conversation, including turns from before it joined),
-`c2c_status`, `c2c_send` and `c2c_press`.
+`c2c_status`, `c2c_send`, `c2c_press`, and `c2c_say` / `c2c_f2f` for the lane -
+an agent that cannot hear "wait, do not run that" is the reason the lane exists.
 
 There is deliberately **no tool to approve, deny or change the mode.** An agent
 that could release its own messages would not be a bozo, it would be an unlocked
@@ -299,11 +363,13 @@ you like anyone else's, and it cannot answer a permission prompt at all.
 
 Point it at a remote session with `--url wss://.../bozo?room=...&t=...`.
 
-## If a message gets held
+## If a message will not go in
 
-Bozo messages are held rather than injected when the session is not ready for
-them, and you get a tmux notice saying which:
+It waits in the outbox, and everyone can see why. You get one tmux notice per
+reason rather than one per attempt:
 
+- **the session is still working**, so it waits for the turn to end (in
+  `--outbox through` it goes in anyway and claude queues it)
 - **you have an unsent draft** in the prompt box, so injecting would splice the
   bozo's words into your half-typed line
 - **the pane is a dialog**, so the text would go nowhere and the trailing Enter
@@ -311,7 +377,9 @@ them, and you get a tmux notice saying which:
 - **the pane is in tmux copy mode**, where text is read as copy-mode commands
   rather than typed into claude (press `q` to leave it)
 
-Clear or send your draft, or answer the dialog, and the bozo can resend.
+Clear or send your draft, answer the dialog, and the queue drains on its own -
+nobody has to resend. Only a dead pane or a failed write loses a message, and
+both are loud on every surface.
 
 ## Status
 
