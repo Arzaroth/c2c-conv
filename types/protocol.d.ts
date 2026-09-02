@@ -9,7 +9,10 @@ type PaneState = 'dead' | 'copy-mode' | 'dialog' | 'busy' | 'prompt' | 'unknown'
 
 // Why an injection did not land. 'draft' and 'error' are not pane states: the
 // pane was fine, the write was not.
-type HoldReason = PaneState | 'draft' | 'error'
+// unsubmitted is the one that is not a wait: the text reached the box and the
+// Enter after it did not send it, so it is sitting there as a draft nobody
+// meant to leave.
+type HoldReason = PaneState | 'draft' | 'error' | 'unsubmitted'
 
 interface TranscriptEntry {
   role: 'user' | 'assistant'

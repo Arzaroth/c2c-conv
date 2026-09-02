@@ -40,6 +40,7 @@ export function holdText(reason: HoldReason): string {
     unknown: 'the session is not at a prompt',
     dead: 'the pane is gone',
     error: 'the write failed',
+    unsubmitted: 'it was typed into the box but never went in - press Enter in the pane to send it',
   }
   return reasons[reason] ?? `the pane is ${reason}`
 }
@@ -744,10 +745,31 @@ export class Ringmaster {
       // Even in through, the next message must not catch this one still in the
       // box, or the two arrive spliced into one turn. The wait is shorter there
       // because a busy session may not be rendering the box at all, and then
-      // there is nothing to see go empty.
-      await this.#settle(through ? 1500 : 5000)
-      console.log(`[outbox] o${entry.id} delivered`)
-      return { ok: true }
+      // there is nothing to see go empty - so only drain can read anything into
+      // a box that has not emptied.
+      const settled = await this.#settle(through ? 1500 : 5000)
+      if (settled || through) {
+        console.log(`[outbox] o${entry.id} delivered`)
+        return { ok: true }
+      }
+
+      // The box never emptied, so the Enter did not send it. A bare Enter
+      // submits whatever is already in there, which is cheaper and safer than
+      // typing the message again on top of itself.
+      if (tmux.boxHolds(await tmux.promptDraft(this.#session), entry.text)) {
+        await tmux.sendKey(this.#session, 'Enter')
+        if (await this.#settle(5000)) {
+          console.log(`[outbox] o${entry.id} delivered on a second Enter`)
+          return { ok: true }
+        }
+      }
+
+      // Retrying is what wedges: the next attempt reads our own text as the
+      // host's draft and holds behind it forever. Reporting it sent is the one
+      // failure this queue exists to prevent, so it fails, loudly, with the
+      // text still in the box where a single Enter finishes the job.
+      console.error(`[outbox] o${entry.id} was typed but never went in`)
+      return { ok: false, retry: false, reason: 'unsubmitted' }
     } catch (err) {
       // A message someone was told was sent, that never arrives, is the one
       // failure this design cannot afford. It is loud on both sides.
@@ -760,7 +782,7 @@ export class Ringmaster {
   // renders them, so a single "is the box empty" check passes while the text is
   // still in flight and the next queued message then catches it mid-render and
   // is held as a phantom draft. Wait for the box to read empty twice running.
-  async #settle(timeoutMs = 5000): Promise<void> {
+  async #settle(timeoutMs = 5000): Promise<boolean> {
     const deadline = Date.now() + timeoutMs
     await new Promise((r) => setTimeout(r, 250))
 
@@ -768,12 +790,13 @@ export class Ringmaster {
     while (Date.now() < deadline) {
       const draft = await tmux.promptDraft(this.#session)
       if (draft === '') {
-        if (++consecutiveEmpty >= 2) return
+        if (++consecutiveEmpty >= 2) return true
       } else {
         consecutiveEmpty = 0
       }
       await new Promise((r) => setTimeout(r, 150))
     }
+    return false
   }
 
   #onOutboxEvent(event: OutboxEvent): void {
