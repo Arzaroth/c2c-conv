@@ -202,6 +202,15 @@ export class Ringmaster {
       if (this.#history.length > MAX_HISTORY) this.#history.shift()
       this.#broadcastJson({ type: 'transcript', entry })
     })
+    // A reset is claude starting a new conversation under the same pane, so the
+    // history everyone is holding is now somebody else's. Replacing it with an
+    // empty one is the same message a bozo gets on arrival, so both clients
+    // already do the right thing with it.
+    this.#transcript.on('reset', () => {
+      this.#history = []
+      this.#broadcastJson({ type: 'transcript:history', entries: [] })
+      this.#notifyHost('c2c: the session was cleared - the history went with it')
+    })
     this.#transcript.on('located', (info: { path: string }) => console.log(`[transcript] ${info.path}`))
     this.#transcript.start()
 
