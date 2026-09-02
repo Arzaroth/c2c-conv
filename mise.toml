@@ -1,13 +1,34 @@
 [tools]
 node = "24"
 
+# TypeScript now, so there is a compile step: sources in src/, bigtop/ and
+# test/ build to dist/. Everything that runs code depends on it.
+[tasks.build]
+description = "Compile TypeScript to dist/"
+run = """
+cd "{{config_root}}"
+npm exec --no -- tsc -p tsconfig.json
+# tsc keeps the shebang but not the mode bit, and c2c is normally a symlink to
+# dist/src/cli.js. Without this every rebuild breaks whatever is on PATH.
+chmod +x dist/src/cli.js dist/bigtop/server.js
+"""
+
+[tasks.check]
+description = "Type-check everything without emitting"
+run = """
+cd "{{config_root}}"
+npm exec --no -- tsc --noEmit -p tsconfig.json
+echo "everything type-checks"
+"""
+
 [tasks.install]
 description = "Put c2c on your PATH (~/.local/bin/c2c)"
+depends = ["build"]
 run = """
 mkdir -p "$HOME/.local/bin"
-ln -sf "{{config_root}}/src/cli.js" "$HOME/.local/bin/c2c"
-chmod +x "{{config_root}}/src/cli.js"
-echo "c2c -> {{config_root}}/src/cli.js"
+ln -sf "{{config_root}}/dist/src/cli.js" "$HOME/.local/bin/c2c"
+chmod +x "{{config_root}}/dist/src/cli.js"
+echo "c2c -> {{config_root}}/dist/src/cli.js"
 command -v c2c >/dev/null && echo "on PATH: $(command -v c2c)" || echo "warning: ~/.local/bin is not on your PATH"
 """
 
@@ -17,51 +38,40 @@ run = 'rm -f "$HOME/.local/bin/c2c" && echo "removed"'
 
 [tasks.test]
 description = "Run the whole suite"
-run = 'node --test "{{config_root}}/test/*.test.js"'
-
-[tasks.check]
-description = "Syntax-check every source file"
-run = """
-cd "{{config_root}}"
-for f in src/*.js src/transport/*.js bigtop/server.js web/client.js test/*.js; do
-  node --check "$f" || exit 1
-done
-echo "all files parse"
-"""
-
-# There is nothing to compile: no dependencies, no bundler, no build step.
-# This exists so "how do I build it" has an answer that is not silence.
-[tasks.build]
-description = "No-op: c2c is plain JS with no dependencies"
-run = 'echo "nothing to build - zero dependencies, no compile step. Run: mise run install"'
+depends = ["build"]
+run = 'node --test "{{config_root}}/dist/test/*.test.js"'
 
 [tasks.host]
 description = "Share a session here, over a cloudflared tunnel"
-run = 'node "{{config_root}}/src/cli.js" host --tunnel'
+depends = ["build"]
+run = 'node "{{config_root}}/dist/src/cli.js" host --tunnel'
 
 [tasks.local]
 description = "Share a session here, loopback only (guest forwards a port)"
-run = 'node "{{config_root}}/src/cli.js" host'
+depends = ["build"]
+run = 'node "{{config_root}}/dist/src/cli.js" host'
 
 [tasks.bigtop]
 description = "Run a rendezvous bigtop on :8080"
-run = 'node "{{config_root}}/bigtop/server.js" --port 8080 --bind 127.0.0.1'
+depends = ["build"]
+run = 'node "{{config_root}}/dist/bigtop/server.js" --port 8080 --bind 127.0.0.1'
 
 [tasks.zavatta]
 description = "Join the running session as an AI bozo (MCP, stdio)"
-run = 'node "{{config_root}}/src/cli.js" zavatta'
+depends = ["build"]
+run = 'node "{{config_root}}/dist/src/cli.js" zavatta'
 
 [tasks.status]
 description = "Who is connected and what is waiting"
-run = 'node "{{config_root}}/src/cli.js" ctl status'
+run = 'node "{{config_root}}/dist/src/cli.js" ctl status'
 
 [tasks.invite]
 description = "Reprint the bozo instructions"
-run = 'node "{{config_root}}/src/cli.js" invite'
+run = 'node "{{config_root}}/dist/src/cli.js" invite'
 
 [tasks.stop]
 description = "Tear the session down"
-run = 'node "{{config_root}}/src/cli.js" stop'
+run = 'node "{{config_root}}/dist/src/cli.js" stop'
 
 [tasks."docker:build"]
 description = "Build the c2c image, with the image user matching yours"

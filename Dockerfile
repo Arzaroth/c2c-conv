@@ -22,9 +22,16 @@ RUN userdel -r node \
  && groupadd -g "$GID" c2c \
  && useradd -m -u "$UID" -g "$GID" -s /bin/bash c2c
 
+# Built inside the image rather than copied in, so the image never depends on
+# whatever happens to be in the host's dist/. npm prune drops typescript again:
+# it is the only thing installed, and nothing needs it at runtime.
 COPY --chown=c2c:c2c . /opt/c2c-conv
-RUN ln -s /opt/c2c-conv/src/cli.js /usr/local/bin/c2c \
- && chmod +x /opt/c2c-conv/src/cli.js /opt/c2c-conv/docker/entrypoint.sh
+RUN cd /opt/c2c-conv \
+ && npm ci \
+ && npm run build \
+ && npm prune --omit=dev \
+ && ln -s /opt/c2c-conv/dist/src/cli.js /usr/local/bin/c2c \
+ && chmod +x /opt/c2c-conv/docker/entrypoint.sh
 
 USER c2c
 ENV HOME=/home/c2c USER=c2c CLAUDE_CODE_TMPDIR=/home/c2c/.cache/claude

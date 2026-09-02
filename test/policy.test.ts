@@ -24,11 +24,13 @@ test('ring sends straight through', () => {
 
 test('approve emits once and clears the queue', () => {
   const policy = new Policy()
-  const seen = []
+  const seen: string[] = []
   policy.onEvent((event) => seen.push(event.type))
 
-  const { id } = policy.submit({ text: 'ship it', bozo: 'bozo' })
-  assert.deepEqual(policy.approve(id).text, 'ship it')
+  const queued = policy.submit({ text: 'ship it', bozo: 'bozo' })
+  assert.ok(queued.action === 'queued')
+  const id = queued.id
+  assert.deepEqual(policy.approve(id)?.text, 'ship it')
   assert.equal(policy.approve(id), null)
   assert.equal(policy.list().length, 0)
   assert.deepEqual(seen, ['queued', 'approved'])
@@ -41,8 +43,9 @@ test('deny drops the message without sending', () => {
     if (event.type === 'approved' || event.type === 'sent') sent.push(event)
   })
 
-  const { id } = policy.submit({ text: 'rm -rf', bozo: 'bozo' })
-  policy.deny(id)
+  const queued = policy.submit({ text: 'rm -rf', bozo: 'bozo' })
+  assert.ok(queued.action === 'queued')
+  policy.deny(queued.id)
   assert.equal(sent.length, 0)
   assert.equal(policy.list().length, 0)
 })
@@ -52,6 +55,7 @@ test('newlines collapse so one message stays one turn', () => {
   policy.setMode(YOLO)
 
   const result = policy.submit({ text: 'first\nsecond\r\nthird', bozo: 'bozo' })
+  assert.ok(result.action === 'send')
   assert.equal(result.text, 'first second third')
 })
 

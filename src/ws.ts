@@ -1,5 +1,12 @@
 import { createHash } from 'node:crypto'
 import { EventEmitter } from 'node:events'
+import type { IncomingMessage } from 'node:http'
+import type { Socket } from 'node:net'
+import type { Duplex } from 'node:stream'
+
+// The upgrade event is typed as a bare Duplex, but node always hands over a
+// net.Socket and this needs the one method that adds.
+export type WsSocket = Duplex & Pick<Socket, 'setNoDelay'>
 
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 
@@ -14,7 +21,7 @@ const CLOSE = 0x8
 const PING = 0x9
 const PONG = 0xa
 
-export function handshake(req, socket) {
+export function handshake(req: IncomingMessage, socket: Duplex): WebSocket | null {
   const key = req.headers['sec-websocket-key']
   if (!key) {
     socket.destroy()
@@ -27,56 +34,61 @@ export function handshake(req, socket) {
     'Connection: Upgrade\r\n' +
     `Sec-WebSocket-Accept: ${accept}\r\n\r\n`
   )
-  return new WebSocket(socket)
+  return new WebSocket(socket as WsSocket)
 }
 
 export class WebSocket extends EventEmitter {
-  #socket
-  #buffer = Buffer.alloc(0)
-  #fragments = []
-  #fragmentOpcode = null
+  // Stamped by whichever transport accepted the socket, so a channel can be
+  // named and addressed once it is in the ringmaster's hands.
+  id = ''
+  origin = ''
+
+  #socket: WsSocket
+  #buffer: Buffer = Buffer.alloc(0)
+  #fragments: Buffer[] = []
+  #fragmentOpcode: number | null = null
   #closed = false
 
-  constructor(socket) {
+  constructor(socket: WsSocket) {
     super()
     this.#socket = socket
     socket.setNoDelay(true)
-    socket.on('data', (chunk) => this.#feed(chunk))
+    socket.on('data', (chunk: Buffer) => this.#feed(chunk))
     socket.on('close', () => this.#finish())
     socket.on('error', () => this.#finish())
   }
 
-  get closed() {
+  get closed(): boolean {
     return this.#closed
   }
 
-  sendText(data) {
+  sendText(data: string): void {
     this.#send(Buffer.from(data, 'utf8'), TEXT)
   }
 
-  sendJson(value) {
+  sendJson(value: unknown): void {
     this.sendText(JSON.stringify(value))
   }
 
-  sendBinary(data) {
+  sendBinary(data: Uint8Array): void {
     this.#send(Buffer.isBuffer(data) ? data : Buffer.from(data), BINARY)
   }
 
-  ping() {
+  ping(): void {
     this.#send(Buffer.alloc(0), PING)
   }
 
-  close() {
+  close(): void {
     if (this.#closed) return
     this.#send(Buffer.alloc(0), CLOSE)
     this.#socket.end()
     this.#finish()
   }
 
-  #send(payload, opcode) {
+  #send(payload: Buffer, opcode: number): void {
     if (this.#closed || this.#socket.destroyed) return
     const len = payload.length
-    let header
+    let header: Buffer
     if (len < 126) {
       header = Buffer.alloc(2)
       header[1] = len
@@ -93,13 +105,13 @@ export class WebSocket extends EventEmitter {
     this.#socket.write(Buffer.concat([header, payload]))
   }
 
-  #finish() {
+  #finish(): void {
     if (this.#closed) return
     this.#closed = true
     this.emit('close')
   }
 
-  #feed(chunk) {
+  #feed(chunk: Buffer): void {
     this.#buffer = this.#buffer.length ? Buffer.concat([this.#buffer, chunk]) : chunk
     // Covers a peer that dribbles bytes towards an oversized frame it declared.
     if (this.#buffer.length > MAX_MESSAGE + 1024) {
@@ -109,7 +121,7 @@ export class WebSocket extends EventEmitter {
     while (this.#step()) {}
   }
 
-  #step() {
+  #step(): boolean {
     const buf = this.#buffer
     if (buf.length < 2) return false
 

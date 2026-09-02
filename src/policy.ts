@@ -16,16 +16,16 @@ export const ALLOWED_KEYS = new Set([
 ])
 
 export class Policy {
-  #mode = GALLERY
-  #pending = new Map()
+  #mode: Mode = GALLERY
+  #pending = new Map<number, PendingEntry>()
   #nextId = 1
-  #listeners = new Set()
+  #listeners = new Set<(event: PolicyEvent) => void>()
 
-  get mode() {
+  get mode(): Mode {
     return this.#mode
   }
 
-  setMode(mode) {
+  setMode(mode: string): Mode {
     if (mode !== GALLERY && mode !== YOLO) {
       throw new Error(`unknown mode: ${mode}`)
     }
@@ -35,16 +35,16 @@ export class Policy {
     return this.#mode
   }
 
-  onEvent(fn) {
+  onEvent(fn: (event: PolicyEvent) => void): () => void {
     this.#listeners.add(fn)
     return () => this.#listeners.delete(fn)
   }
 
-  #emit(event) {
+  #emit(event: PolicyEvent): void {
     for (const fn of this.#listeners) fn(event)
   }
 
-  submit({ text, bozo }) {
+  submit({ text, bozo }: { text: unknown; bozo?: string }): SubmitResult {
     const clean = normalize(text)
     if (!clean) return { action: 'ignored' }
     if (clean.length > MAX_TEXT) {
@@ -61,7 +61,7 @@ export class Policy {
     }
 
     const id = this.#nextId++
-    const entry = { id, text: clean, bozo, at: Date.now() }
+    const entry: PendingEntry = { id, text: clean, bozo, at: Date.now() }
     this.#pending.set(id, entry)
     this.#emit({ type: 'queued', ...entry })
     return { action: 'queued', id }
@@ -71,18 +71,20 @@ export class Policy {
   // arrow presses for approval would be unusable, so keys are a yolo-only
   // capability rather than a third thing on the ladder. The whiteface is the
   // host, and the host can always answer the pane.
-  submitKey({ key, bozo, whiteface = false }) {
+  submitKey(
+    { key, bozo, whiteface = false }: { key: string; bozo?: string; whiteface?: boolean },
+  ): KeyResult {
     if (!ALLOWED_KEYS.has(key)) return { action: 'rejected', reason: 'unknown key' }
     if (this.#mode !== YOLO && !whiteface) return { action: 'refused', reason: 'gallery' }
     this.#emit({ type: 'key', key, bozo })
     return { action: 'send', key }
   }
 
-  list() {
+  list(): PendingEntry[] {
     return [...this.#pending.values()]
   }
 
-  approve(id) {
+  approve(id: number): PendingEntry | null {
     const entry = this.#pending.get(id)
     if (!entry) return null
     this.#pending.delete(id)
@@ -90,7 +92,7 @@ export class Policy {
     return entry
   }
 
-  deny(id) {
+  deny(id: number): PendingEntry | null {
     const entry = this.#pending.get(id)
     if (!entry) return null
     this.#pending.delete(id)
@@ -98,14 +100,14 @@ export class Policy {
     return entry
   }
 
-  approveAll() {
+  approveAll(): PendingEntry[] {
     const all = this.list()
     this.#pending.clear()
     for (const entry of all) this.#emit({ type: 'approved', ...entry })
     return all
   }
 
-  denyAll() {
+  denyAll(): PendingEntry[] {
     const all = this.list()
     this.#pending.clear()
     for (const entry of all) this.#emit({ type: 'denied', ...entry })
@@ -115,7 +117,7 @@ export class Policy {
 
 // The prompt box submits on Enter, so a raw newline inside bozo text would
 // split one message into several turns.
-function normalize(text) {
+function normalize(text: unknown): string {
   if (typeof text !== 'string') return ''
   return text.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim()
 }

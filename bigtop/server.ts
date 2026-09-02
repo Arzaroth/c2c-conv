@@ -1,17 +1,17 @@
 #!/usr/bin/env node
-import { createServer } from 'node:http'
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { randomBytes } from 'node:crypto'
-import { fileURLToPath } from 'node:url'
-import { dirname, extname, join, resolve, sep } from 'node:path'
+import { extname, resolve, sep } from 'node:path'
+import type { AddressInfo } from 'node:net'
+import type { Duplex } from 'node:stream'
 
-import { handshake } from '../src/ws.js'
+import { handshake, WebSocket } from '../src/ws.js'
 import { timingSafeEqualString } from '../src/secret.js'
 import { MAX_BOZOS } from '../src/policy.js'
+import { WEB_ROOT } from '../src/root.js'
 
-const WEB_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', 'web')
-
-const MIME = {
+const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
@@ -30,19 +30,27 @@ const MIN_TOKEN = 8
 
 const ROOM_NAME = /^[\w.-]+$/
 
-function validRoom(room) {
+// A room: whoever claimed it, the token they fixed it with, and everyone
+// currently riding along.
+interface Room {
+  token: string
+  bozos: Map<string, WebSocket>
+  host: WebSocket | null
+}
+
+function validRoom(room: unknown): room is string {
   return typeof room === 'string' && room.length <= MAX_ROOM_NAME && ROOM_NAME.test(room)
 }
 
 // A room is only as private as its token, and the bigtop is the one place that
 // can insist the host picked a real one.
-function validToken(token) {
+function validToken(token: unknown): token is string {
   return typeof token === 'string' && token.length >= MIN_TOKEN && token.length <= 256
 }
 
 // Without this a half-open connection keeps a room name claimed forever: the
 // host is gone but the socket never errors, so every later host gets refused.
-function heartbeat(ws, intervalMs = HEARTBEAT_MS) {
+function heartbeat(ws: WebSocket, intervalMs = HEARTBEAT_MS): NodeJS.Timeout {
   let alive = true
   ws.on('pong', () => {
     alive = true
@@ -61,28 +69,31 @@ function heartbeat(ws, intervalMs = HEARTBEAT_MS) {
 }
 
 export class Bigtop {
-  #rooms = new Map()
-  #server = null
+  readonly heartbeatMs: number
 
-  constructor({ heartbeatMs = HEARTBEAT_MS } = {}) {
+  #rooms = new Map<string, Room>()
+  #server: Server | null = null
+
+  constructor({ heartbeatMs = HEARTBEAT_MS }: { heartbeatMs?: number } = {}) {
     this.heartbeatMs = heartbeatMs
   }
 
-  get rooms() {
+  get rooms(): Map<string, Room> {
     return this.#rooms
   }
 
-  async listen(port, host) {
-    this.#server = createServer((req, res) => this.#serve(req, res))
-    this.#server.on('upgrade', (req, socket) => this.#upgrade(req, socket))
-    await new Promise((resolve, reject) => {
-      this.#server.once('error', reject)
-      this.#server.listen(port, host, resolve)
+  async listen(port: number, host?: string): Promise<AddressInfo> {
+    const server = createServer((req, res) => this.#serve(req, res))
+    server.on('upgrade', (req, socket) => this.#upgrade(req, socket))
+    this.#server = server
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(port, host, resolve)
     })
-    return this.#server.address()
+    return server.address() as AddressInfo
   }
 
-  close() {
+  close(): void {
     for (const room of this.#rooms.values()) {
       room.host?.close()
       for (const bozo of room.bozos.values()) bozo.close()
@@ -91,8 +102,8 @@ export class Bigtop {
     this.#server?.close()
   }
 
-  async #serve(req, res) {
-    const url = new URL(req.url, 'http://localhost')
+  async #serve(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const url = new URL(req.url ?? '/', 'http://localhost')
 
     if (url.pathname === '/healthz') {
       res.writeHead(200, { 'content-type': 'application/json' })
@@ -122,8 +133,8 @@ export class Bigtop {
     }
   }
 
-  #upgrade(req, socket) {
-    const url = new URL(req.url, 'http://localhost')
+  #upgrade(req: IncomingMessage, socket: Duplex): void {
+    const url = new URL(req.url ?? '/', 'http://localhost')
     const room = url.searchParams.get('room')
     const token = url.searchParams.get('t')
 
@@ -136,7 +147,7 @@ export class Bigtop {
     return reject(socket, 404, 'unknown endpoint')
   }
 
-  #acceptHost(req, socket, roomId, token) {
+  #acceptHost(req: IncomingMessage, socket: Duplex, roomId: string, token: string): void {
     const existing = this.#rooms.get(roomId)
 
     // A room is claimed by the first host and its token is fixed at that point,
@@ -159,8 +170,8 @@ export class Bigtop {
     this.#rooms.set(roomId, room)
     heartbeat(ws, this.heartbeatMs)
 
-    ws.on('text', (raw) => this.#fromHost(room, raw))
-    ws.on('binary', (chunk) => {
+    ws.on('text', (raw: string) => this.#fromHost(room, raw))
+    ws.on('binary', (chunk: Buffer) => {
       for (const bozo of room.bozos.values()) {
         if (!bozo.closed) bozo.sendBinary(chunk)
       }
@@ -180,7 +191,7 @@ export class Bigtop {
     }
   }
 
-  #acceptGuest(req, socket, roomId, token) {
+  #acceptGuest(req: IncomingMessage, socket: Duplex, roomId: string, token: string): void {
     const room = this.#rooms.get(roomId)
     if (!room || !room.host || room.host.closed) return reject(socket, 404, 'no host in this room')
     if (!timingSafeEqualString(token, room.token)) return reject(socket, 401, 'bad token')
@@ -193,8 +204,8 @@ export class Bigtop {
     room.bozos.set(id, ws)
     heartbeat(ws, this.heartbeatMs)
 
-    ws.on('text', (raw) => {
-      let payload
+    ws.on('text', (raw: string) => {
+      let payload: BozoMessage
       try {
         payload = JSON.parse(raw)
       } catch {
@@ -210,35 +221,37 @@ export class Bigtop {
     room.host.sendJson({ from: id, event: 'join' })
   }
 
-  #fromHost(room, raw) {
-    let msg
+  #fromHost(room: Room, raw: string): void {
+    let msg: UplinkFrame
     try {
       msg = JSON.parse(raw)
     } catch {
       return
     }
 
-    const targets = msg.to === '*' ? [...room.bozos.values()] : [room.bozos.get(msg.to)].filter(Boolean)
+    const targets: WebSocket[] = msg.to === '*'
+      ? [...room.bozos.values()]
+      : [room.bozos.get(msg.to)].filter((bozo) => bozo !== undefined)
 
     for (const bozo of targets) {
       if (bozo.closed) continue
-      if (msg.evict) bozo.close()
-      else if (msg.bin) bozo.sendBinary(Buffer.from(msg.bin, 'base64'))
-      else if (msg.payload !== undefined) bozo.sendJson(msg.payload)
+      if ('evict' in msg && msg.evict) bozo.close()
+      else if ('bin' in msg && msg.bin) bozo.sendBinary(Buffer.from(msg.bin, 'base64'))
+      else if ('payload' in msg && msg.payload !== undefined) bozo.sendJson(msg.payload)
     }
   }
 }
 
 // Stripping "../" prefixes is guesswork. Resolve the path and check it is still
 // inside the web root, which is the only version that is actually provable.
-export function resolvePublic(file, root = WEB_ROOT) {
+export function resolvePublic(file: string, root: string = WEB_ROOT): string | null {
   const target = resolve(root, '.' + (file.startsWith('/') ? file : `/${file}`))
   const base = resolve(root)
   if (target !== base && !target.startsWith(base + sep)) return null
   return target
 }
 
-function reject(socket, code, message) {
+function reject(socket: Duplex, code: number, message: string): void {
   socket.write(`HTTP/1.1 ${code} ${message}\r\n\r\n`)
   socket.destroy()
 }
@@ -247,12 +260,12 @@ const isMain = process.argv[1] && import.meta.url === `file://${process.argv[1]}
 
 if (isMain) {
   const args = process.argv.slice(2)
-  const get = (flag, fallback) => {
+  const get = (flag: string, fallback: string): string => {
     const index = args.indexOf(flag)
     return index === -1 ? fallback : args[index + 1]
   }
 
-  const port = Number(get('--port', process.env.PORT || 8080))
+  const port = Number(get('--port', process.env.PORT || '8080'))
   const host = get('--bind', process.env.BIND || '0.0.0.0')
 
   const bigtop = new Bigtop()

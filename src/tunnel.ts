@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -14,7 +14,7 @@ import { join } from 'node:path'
 const QUICK = /https:\/\/[a-z0-9][a-z0-9-]*\.trycloudflare\.com/i
 const ANY_HTTPS = /https:\/\/[a-z0-9][a-z0-9.-]*\.[a-z]{2,}(?::\d+)?/i
 
-export function parseTunnelUrl(line) {
+export function parseTunnelUrl(line: string): string | null {
   const quick = line.match(QUICK)
   if (quick) return quick[0]
   // Only trust a bare URL from the announcement banner, or ordinary log lines
@@ -28,7 +28,7 @@ export function parseTunnelUrl(line) {
 // signature. So c2c does not depend on it - but if you have installed it, its
 // binary is perfectly good and there is no reason to make you install a second
 // copy. Anything on PATH wins, since that came from a signed package.
-export function resolveCloudflared(cwd = process.cwd()) {
+export function resolveCloudflared(cwd: string = process.cwd()): string {
   if (process.env.C2C_CLOUDFLARED) return process.env.C2C_CLOUDFLARED
 
   const candidates = [
@@ -42,22 +42,22 @@ export function resolveCloudflared(cwd = process.cwd()) {
 }
 
 export class Tunnel extends EventEmitter {
-  #port
-  #bin
-  #child = null
+  #port: number
+  #bin: string
+  #child: ChildProcess | null = null
   #stopped = false
 
-  url = null
+  url: string | null = null
 
-  constructor({ port, bin }) {
+  constructor({ port, bin }: { port: number; bin?: string }) {
     super()
     this.#port = port
     this.#bin = bin ?? resolveCloudflared()
   }
 
-  start(timeoutMs = 30000) {
-    return new Promise((resolve, reject) => {
-      let child
+  start(timeoutMs = 30000): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+      let child: ChildProcess
       try {
         child = spawn(this.#bin, [
           'tunnel', '--no-autoupdate',
@@ -73,7 +73,7 @@ export class Tunnel extends EventEmitter {
         reject(new Error('cloudflared did not announce a URL in time'))
       }, timeoutMs)
 
-      const onLine = (line) => {
+      const onLine = (line: string) => {
         if (this.url) return
         const found = parseTunnelUrl(line)
         if (!found) return
@@ -84,11 +84,12 @@ export class Tunnel extends EventEmitter {
       }
 
       for (const stream of [child.stdout, child.stderr]) {
+        if (!stream) continue
         let buffer = ''
         stream.setEncoding('utf8')
-        stream.on('data', (chunk) => {
+        stream.on('data', (chunk: string) => {
           buffer += chunk
-          let index
+          let index: number
           while ((index = buffer.indexOf('\n')) !== -1) {
             onLine(buffer.slice(0, index))
             buffer = buffer.slice(index + 1)
@@ -96,7 +97,7 @@ export class Tunnel extends EventEmitter {
         })
       }
 
-      child.on('error', (err) => {
+      child.on('error', (err: NodeJS.ErrnoException) => {
         clearTimeout(timer)
         // The npm packages that "provide" cloudflared only download this same
         // Go binary, and Cloudflare publishes no checksums to verify it against,
@@ -113,7 +114,7 @@ export class Tunnel extends EventEmitter {
         )
       })
 
-      child.on('exit', (code) => {
+      child.on('exit', (code: number | null) => {
         this.#child = null
         if (!this.#stopped) {
           clearTimeout(timer)
@@ -124,7 +125,7 @@ export class Tunnel extends EventEmitter {
     })
   }
 
-  stop() {
+  stop(): void {
     this.#stopped = true
     this.#child?.kill()
     this.#child = null

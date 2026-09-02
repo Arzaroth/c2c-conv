@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync, spawn } from 'node:child_process'
 import { connect, createServer } from 'node:net'
-import { hostname, networkInterfaces } from 'node:os'
+import { hostname, networkInterfaces, type NetworkInterfaceInfo } from 'node:os'
 import { readFile } from 'node:fs/promises'
 import { openSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -18,14 +18,29 @@ const SELF = fileURLToPath(import.meta.url)
 
 // The old mode names stay valid. "yolo" in particular said "this is dangerous"
 // out loud, and anyone who learned it should not be told it is now invalid.
-const MODE_ALIASES = { spectator: 'gallery', ring: 'yolo' }
+const MODE_ALIASES: Record<string, string> = { spectator: 'gallery', ring: 'yolo' }
 
 const DEFAULTS = { session: 'c2c', port: 7331, host: '127.0.0.1' }
 
-function parseArgs(argv) {
-  const opts = { ...DEFAULTS, cwd: process.cwd(), attach: true }
-  const rest = []
-  let passthrough = null
+interface Options {
+  session: string
+  port: number
+  host: string
+  cwd: string
+  attach: boolean
+  mode?: string
+  tunnel?: boolean
+  bigtop?: string
+  room?: string
+  token?: string
+  url?: string
+  name?: string
+}
+
+function parseArgs(argv: string[]): { opts: Options; rest: string[]; passthrough: string[] | null } {
+  const opts: Options = { ...DEFAULTS, cwd: process.cwd(), attach: true }
+  const rest: string[] = []
+  let passthrough: string[] | null = null
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
@@ -53,7 +68,7 @@ function parseArgs(argv) {
   return { opts, rest, passthrough }
 }
 
-async function readMeta(session) {
+async function readMeta(session: string): Promise<SessionMeta | null> {
   try {
     return JSON.parse(await readFile(metaFile(session), 'utf8'))
   } catch {
@@ -61,8 +76,8 @@ async function readMeta(session) {
   }
 }
 
-function control(session, message) {
-  return new Promise((resolveReply, reject) => {
+function control(session: string, message: ControlRequest): Promise<ControlReply> {
+  return new Promise<ControlReply>((resolveReply, reject) => {
     const socket = connect(controlSocket(session))
     let buffer = ''
     socket.on('error', () => reject(new Error(`no ringmaster running for session "${session}"`)))
@@ -81,7 +96,7 @@ function control(session, message) {
   })
 }
 
-async function cmdHost({ opts, passthrough }) {
+async function cmdHost({ opts, passthrough }: { opts: Options; passthrough: string[] | null }): Promise<void> {
   if (await tmux.hasSession(opts.session)) {
     console.error(`session "${opts.session}" already exists - c2c attach, or c2c stop first`)
     process.exit(1)
@@ -151,7 +166,7 @@ async function cmdHost({ opts, passthrough }) {
     process.exit(1)
   }
 
-  const ready = opts.tunnel ? await waitForTunnel(opts.session) : meta
+  const ready = (opts.tunnel ? await waitForTunnel(opts.session) : meta) ?? meta
 
   console.log(`c2c-conv ${version()} - session "${opts.session}" is live`)
   console.log('')
@@ -207,8 +222,8 @@ async function cmdHost({ opts, passthrough }) {
   }
 }
 
-function portFree(port, host) {
-  return new Promise((done) => {
+function portFree(port: number, host: string): Promise<boolean> {
+  return new Promise<boolean>((done) => {
     const probe = createServer()
     probe.once('error', () => done(false))
     probe.once('listening', () => probe.close(() => done(true)))
@@ -216,11 +231,11 @@ function portFree(port, host) {
   })
 }
 
-function isLoopback(host) {
+function isLoopback(host: string): boolean {
   return host === '127.0.0.1' || host === '::1' || host === 'localhost'
 }
 
-function tailscaleAddress() {
+function tailscaleAddress(): string | null {
   try {
     const out = execFileSync('tailscale', ['ip', '-4'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
     return out.trim().split('\n')[0] || null
@@ -229,22 +244,26 @@ function tailscaleAddress() {
   }
 }
 
-function lanAddresses() {
+function lanAddresses(): string[] {
   return Object.values(networkInterfaces())
     .flat()
-    .filter((nic) => nic && nic.family === 'IPv4' && !nic.internal)
+    .filter((nic): nic is NetworkInterfaceInfo => nic?.family === 'IPv4' && !nic.internal)
     .map((nic) => nic.address)
 }
 
 // Only advertise addresses that are actually listening. A socket bound to one
 // address does not answer on the others, so listing every interface hands the
 // bozo URLs that refuse the connection.
-function reachableAddresses(host) {
+function reachableAddresses(host: string): string[] {
   if (host === '0.0.0.0' || host === '::') return ['127.0.0.1', ...lanAddresses()]
   return [host]
 }
 
-function printInvite(meta, opts) {
+// Takes only what it prints, so both the metadata file and a live status reply
+// can be handed to it.
+type InviteInfo = Pick<SessionMeta, 'port' | 'token' | 'tunnel'> & { bigtop: { url: string } | null }
+
+function printInvite(meta: InviteInfo, opts?: Options): void {
   const host = opts?.host ?? '127.0.0.1'
   const reachable = reachableAddresses(host)
   const tailnet = tailscaleAddress()
@@ -278,19 +297,19 @@ function printInvite(meta, opts) {
   console.log('')
 }
 
-async function cmdInvite({ opts }) {
+async function cmdInvite({ opts }: { opts: Options }): Promise<void> {
   const meta = await readMeta(opts.session)
   if (!meta) {
     console.error(`no ringmaster running for session "${opts.session}"`)
     process.exit(1)
   }
   const status = await control(opts.session, { cmd: 'status' })
-  printInvite({ ...meta, bigtop: status.bigtop }, opts)
+  printInvite({ ...meta, bigtop: 'bigtop' in status ? status.bigtop : null }, opts)
 }
 
 // Joins as a bozo over the ordinary bozo protocol, so an agent is gated exactly
 // like a person: the ringmaster does not know or care that this one is a program.
-async function cmdZavatta({ opts }) {
+async function cmdZavatta({ opts }: { opts: Options }): Promise<void> {
   const { BozoLink, McpServer } = await import('./zavatta.js')
 
   let url = opts.url
@@ -313,7 +332,7 @@ async function cmdZavatta({ opts }) {
   try {
     await link.connect()
   } catch (err) {
-    console.error(`[c2c] could not join the session: ${err.message}`)
+    console.error(`[c2c] could not join the session: ${(err as Error).message}`)
     process.exit(1)
   }
   console.error(`[c2c] hoinked in as ${opts.name ?? 'zavatta'}, mode is ${link.mode}`)
@@ -321,7 +340,7 @@ async function cmdZavatta({ opts }) {
   new McpServer(link).start()
 }
 
-async function cmdBigtop({ opts }) {
+async function cmdBigtop({ opts }: { opts: Options }): Promise<void> {
   const { Bigtop } = await import('../bigtop/server.js')
   const bigtop = new Bigtop()
   const address = await bigtop.listen(opts.port === DEFAULTS.port ? 8080 : opts.port, opts.host)
@@ -329,8 +348,8 @@ async function cmdBigtop({ opts }) {
   await new Promise(() => {})
 }
 
-async function waitForReady(session, tries = 40) {
-  let state = 'unknown'
+async function waitForReady(session: string, tries = 40): Promise<PaneState> {
+  let state: PaneState = 'unknown'
   for (let i = 0; i < tries; i++) {
     state = await tmux.paneState(session)
     if (state === 'prompt' || state === 'dialog' || state === 'dead') return state
@@ -341,7 +360,7 @@ async function waitForReady(session, tries = 40) {
 
 // cloudflared answers in its own time, so this is waited for separately rather
 // than holding up a session that is already usable.
-async function waitForTunnel(session, tries = 60) {
+async function waitForTunnel(session: string, tries = 60): Promise<SessionMeta | null> {
   let meta = await readMeta(session)
   for (let i = 0; i < tries; i++) {
     if (meta?.tunnel) return meta
@@ -351,7 +370,7 @@ async function waitForTunnel(session, tries = 60) {
   return meta
 }
 
-async function waitForRingmaster(session, tries = 60) {
+async function waitForRingmaster(session: string, tries = 60): Promise<SessionMeta | null> {
   for (let i = 0; i < tries; i++) {
     const meta = await readMeta(session)
     if (meta) return meta
@@ -360,26 +379,26 @@ async function waitForRingmaster(session, tries = 60) {
   return null
 }
 
-function shellQuote(value) {
+function shellQuote(value: string): string {
   return /^[\w./:=-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`
 }
 
-async function cmdRingmaster() {
-  const session = process.env.C2C_SESSION
+async function cmdRingmaster(): Promise<void> {
+  const session = process.env.C2C_SESSION ?? 'c2c'
   const bigtopUrl = process.env.C2C_BIGTOP_URL
   const ringmaster = new Ringmaster({
     session,
     port: Number(process.env.C2C_PORT),
     host: process.env.C2C_BIND,
     token: process.env.C2C_TOKEN,
-    bigtop: bigtopUrl ? { url: bigtopUrl, room: process.env.C2C_BIGTOP_ROOM } : null,
+    bigtop: bigtopUrl ? { url: bigtopUrl, room: process.env.C2C_BIGTOP_ROOM ?? session } : null,
     tunnel: process.env.C2C_TUNNEL === '1',
     mode: process.env.C2C_MODE,
     whiteface: process.env.C2C_WHITEFACE,
   })
   await ringmaster.start()
   console.log(`[ringmaster] listening on ${ringmaster.url}`)
-  if (bigtopUrl) console.log(`[ringmaster] bigtop uplink ${ringmaster.bigtop.bozoUrl}`)
+  if (ringmaster.bigtop) console.log(`[ringmaster] bigtop uplink ${ringmaster.bigtop.bozoUrl}`)
 
   const shutdown = async () => {
     await ringmaster.stop()
@@ -399,14 +418,14 @@ async function cmdRingmaster() {
   }, 2000)
 }
 
-function attach(session) {
-  return new Promise((resolveDone) => {
+function attach(session: string): Promise<void> {
+  return new Promise<void>((resolveDone) => {
     const child = spawn('tmux', tmux.attachArgs(session), { stdio: 'inherit' })
     child.on('exit', () => resolveDone())
   })
 }
 
-async function cmdCtl({ opts, rest }) {
+async function cmdCtl({ opts, rest }: { opts: Options; rest: string[] }): Promise<void> {
   const [sub, ...args] = rest
   const message = buildControlMessage(sub, args)
   if (!message) {
@@ -419,7 +438,7 @@ async function cmdCtl({ opts, rest }) {
   if (reply.ok === false) process.exit(1)
 }
 
-function buildControlMessage(sub, args) {
+function buildControlMessage(sub: string | undefined, args: string[]): ControlRequest | null {
   switch (sub) {
     case 'status':
     case 'list':
@@ -438,11 +457,12 @@ function buildControlMessage(sub, args) {
   }
 }
 
-function printStatus(reply) {
+function printStatus(reply: ControlReply): void {
   if (!reply.ok) {
     console.error(reply.error)
     return
   }
+  if (!('session' in reply)) return
   console.log(`session  ${reply.session}`)
   console.log(`mode     ${reply.mode}`)
   console.log(`url      ${reply.url}`)
@@ -465,7 +485,7 @@ function printStatus(reply) {
   }
 }
 
-async function cmdStop({ opts }) {
+async function cmdStop({ opts }: { opts: Options }): Promise<void> {
   try {
     await control(opts.session, { cmd: 'stop' })
   } catch {}
@@ -473,7 +493,7 @@ async function cmdStop({ opts }) {
   console.log(`stopped "${opts.session}"`)
 }
 
-function usage() {
+function usage(): void {
   console.log(`c2c-conv ${version()} - share one Claude Code session with a second person
 
 usage:
@@ -541,6 +561,6 @@ try {
       usage()
   }
 } catch (err) {
-  console.error(err.message)
+  console.error((err as Error).message)
   process.exit(1)
 }

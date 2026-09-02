@@ -12,7 +12,7 @@ import * as tmux from '../src/tmux.js'
 const run = promisify(execFile)
 const NAME = `c2ctest${process.pid}`
 
-const raw = (args) => run('tmux', [...tmux.SERVER_ARGS, ...args])
+const raw = (args: string[]) => run('tmux', [...tmux.SERVER_ARGS, ...args])
 const settle = (ms = 350) => new Promise((r) => setTimeout(r, ms))
 
 let available = true

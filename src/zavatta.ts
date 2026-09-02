@@ -7,31 +7,31 @@ import { packageVersion } from './version.js'
 // Terminal output is for a terminal. An agent gets the screen as plain text.
 const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][0-9A-B]|\x1b[=>]/g
 
-export function stripAnsi(text) {
+export function stripAnsi(text: unknown): string {
   return String(text).replace(ANSI, '')
 }
 
 // A bozo that is a program rather than a browser. It speaks the same protocol
 // and is subject to the same gate: nothing here can approve its own messages.
 export class BozoLink extends EventEmitter {
-  #url
-  #name
-  #socket = null
+  #url: string
+  #name: string
+  #socket: WebSocket | null = null
 
-  mode = 'gallery'
-  state = 'unknown'
+  mode: Mode = 'gallery'
+  state: PaneState = 'unknown'
   screen = ''
-  history = []
+  history: TranscriptEntry[] = []
   connected = false
 
-  constructor({ url, name = 'zavatta' }) {
+  constructor({ url, name = 'zavatta' }: { url: string; name?: string }) {
     super()
     this.#url = url
     this.#name = name
   }
 
-  connect(timeoutMs = 10000) {
-    return new Promise((resolve, reject) => {
+  connect(timeoutMs = 10000): Promise<this> {
+    return new Promise<this>((resolve, reject) => {
       const socket = new WebSocket(this.#url)
       socket.binaryType = 'arraybuffer'
       this.#socket = socket
@@ -46,7 +46,7 @@ export class BozoLink extends EventEmitter {
       // dropped: the screen comes from snapshots instead.
       socket.addEventListener('message', (event) => {
         if (typeof event.data !== 'string') return
-        let msg
+        let msg: ServerMessage
         try {
           msg = JSON.parse(event.data)
         } catch {
@@ -71,7 +71,7 @@ export class BozoLink extends EventEmitter {
     })
   }
 
-  #apply(msg) {
+  #apply(msg: ServerMessage): void {
     if (msg.type === 'hoink') {
       this.mode = msg.mode
       this.state = msg.state ?? 'unknown'
@@ -83,19 +83,19 @@ export class BozoLink extends EventEmitter {
     if (msg.type === 'transcript') this.history.push(msg.entry)
   }
 
-  #send(payload) {
+  #send(payload: BozoMessage): void {
     if (this.#socket?.readyState !== WebSocket.OPEN) throw new Error('not connected to the session')
     this.#socket.send(JSON.stringify(payload))
   }
 
-  #await(types, timeoutMs = 8000) {
-    return new Promise((resolve, reject) => {
+  #await(types: ServerMessage['type'][], timeoutMs = 8000): Promise<ServerMessage> {
+    return new Promise<ServerMessage>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.off('message', onMessage)
         reject(new Error('the ringmaster did not answer'))
       }, timeoutMs)
 
-      const onMessage = (msg) => {
+      const onMessage = (msg: ServerMessage) => {
         if (!types.includes(msg.type)) return
         clearTimeout(timer)
         this.off('message', onMessage)
@@ -105,27 +105,27 @@ export class BozoLink extends EventEmitter {
     })
   }
 
-  async refresh() {
+  async refresh(): Promise<string> {
     const settled = this.#await(['screen'])
     this.#send({ type: 'refresh' })
     await settled
     return this.screen
   }
 
-  async submit(text) {
+  async submit(text: string): Promise<ServerMessage> {
     const settled = this.#await(['accepted', 'pending', 'rejected', 'policy:held'])
     this.#send({ type: 'submit', text })
     return settled
   }
 
-  async press(key) {
+  async press(key: string): Promise<ServerMessage | { type: 'sent'; key: string }> {
     const settled = this.#await(['key:refused', 'state', 'screen'], 3000).catch(() => null)
     this.#send({ type: 'key', key })
     const answer = await settled
     return answer?.type === 'key:refused' ? answer : { type: 'sent', key }
   }
 
-  close() {
+  close(): void {
     this.#socket?.close()
   }
 }
@@ -182,20 +182,30 @@ const TOOLS = [
 // Deliberately absent: approve, deny and mode. An agent that could release its
 // own messages would not be a bozo, it would be an unlocked door - the whole
 // gate rests on those staying with the host.
+// What a tool call can carry. Parsed from the MCP client, so still checked
+// before use.
+interface ToolArgs {
+  text?: string
+  limit?: number
+  key?: string
+}
+
 export class McpServer {
-  #link
+  #link: BozoLink
   #buffer = ''
 
-  constructor(link) {
+  out: NodeJS.WritableStream = process.stdout
+
+  constructor(link: BozoLink) {
     this.#link = link
   }
 
-  start(input = process.stdin, output = process.stdout) {
+  start(input: NodeJS.ReadableStream = process.stdin, output: NodeJS.WritableStream = process.stdout): void {
     this.out = output
     input.setEncoding('utf8')
-    input.on('data', (chunk) => {
+    input.on('data', (chunk: string) => {
       this.#buffer += chunk
-      let index
+      let index: number
       while ((index = this.#buffer.indexOf('\n')) !== -1) {
         const line = this.#buffer.slice(0, index).trim()
         this.#buffer = this.#buffer.slice(index + 1)
@@ -204,22 +214,22 @@ export class McpServer {
     })
   }
 
-  #write(message) {
+  #write(message: unknown): void {
     this.out.write(JSON.stringify(message) + '\n')
   }
 
-  #reply(id, result) {
+  #reply(id: unknown, result: unknown): void {
     if (id !== undefined && id !== null) this.#write({ jsonrpc: '2.0', id, result })
   }
 
-  #fail(id, message) {
+  #fail(id: unknown, message: string): void {
     if (id !== undefined && id !== null) {
       this.#write({ jsonrpc: '2.0', id, error: { code: -32000, message } })
     }
   }
 
-  async #handle(line) {
-    let request
+  async #handle(line: string): Promise<void> {
+    let request: { id?: unknown; method?: string; params?: any }
     try {
       request = JSON.parse(line)
     } catch {
@@ -242,16 +252,16 @@ export class McpServer {
       if (method === 'tools/call') return this.#reply(id, await this.#call(params))
       if (id !== undefined) this.#fail(id, `unknown method: ${method}`)
     } catch (err) {
-      this.#fail(id, err.message)
+      this.#fail(id, (err as Error).message)
     }
   }
 
-  async #call({ name, arguments: args = {} }) {
+  async #call({ name, arguments: args = {} }: { name: string; arguments?: ToolArgs }) {
     const text = await this.#run(name, args)
     return { content: [{ type: 'text', text }] }
   }
 
-  async #run(name, args) {
+  async #run(name: string, args: ToolArgs): Promise<string> {
     const link = this.#link
 
     if (name === 'c2c_screen') {
@@ -293,7 +303,7 @@ export class McpServer {
     }
 
     if (name === 'c2c_press') {
-      const answer = await link.press(args.key)
+      const answer = await link.press(args.key ?? '')
       if (answer.type === 'key:refused') {
         return `Refused: ${answer.reason === 'gallery' ? 'only the host can answer prompts in gallery mode' : answer.reason}.`
       }

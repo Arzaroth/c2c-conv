@@ -5,7 +5,7 @@ import { classifyScreen, readPromptBox } from '../src/tmux.js'
 
 const RULE = '─'.repeat(200)
 
-function screen(...lines) {
+function screen(...lines: string[]) {
   return lines.join('\n') + '\n'
 }
 

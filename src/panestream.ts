@@ -1,24 +1,24 @@
 import { EventEmitter } from 'node:events'
-import { open } from 'node:fs/promises'
-import { watch } from 'node:fs'
+import { open, type FileHandle } from 'node:fs/promises'
+import { watch, type FSWatcher } from 'node:fs'
 
 const POLL_MS = 40
 
 export class PaneStream extends EventEmitter {
-  #file
-  #handle = null
+  #file: string
+  #handle: FileHandle | null = null
   #position = 0
-  #timer = null
-  #watcher = null
+  #timer: NodeJS.Timeout | undefined
+  #watcher: FSWatcher | null = null
   #reading = false
   #stopped = false
 
-  constructor(file) {
+  constructor(file: string) {
     super()
     this.#file = file
   }
 
-  async start() {
+  async start(): Promise<void> {
     this.#handle = await open(this.#file, 'r')
     this.#timer = setInterval(() => this.#drain(), POLL_MS)
     try {
@@ -27,7 +27,7 @@ export class PaneStream extends EventEmitter {
     await this.#drain()
   }
 
-  async stop() {
+  async stop(): Promise<void> {
     this.#stopped = true
     clearInterval(this.#timer)
     this.#watcher?.close()
@@ -35,15 +35,15 @@ export class PaneStream extends EventEmitter {
     this.#handle = null
   }
 
-  get bytesRead() {
+  get bytesRead(): number {
     return this.#position
   }
 
-  rewind() {
+  rewind(): void {
     this.#position = 0
   }
 
-  async #drain() {
+  async #drain(): Promise<void> {
     if (this.#reading || this.#stopped || !this.#handle) return
     this.#reading = true
     try {

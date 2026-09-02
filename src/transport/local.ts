@@ -1,33 +1,32 @@
 import { EventEmitter } from 'node:events'
-import { createServer } from 'node:http'
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { randomBytes } from 'node:crypto'
-import { fileURLToPath } from 'node:url'
-import { dirname, extname, join, normalize } from 'node:path'
+import { extname, join, normalize } from 'node:path'
+import type { Duplex } from 'node:stream'
 
-import { handshake } from '../ws.js'
+import { handshake, WebSocket } from '../ws.js'
 import { timingSafeEqualString } from '../secret.js'
 import { MAX_BOZOS } from '../policy.js'
+import { WEB_ROOT } from '../root.js'
 
-const WEB_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'web')
-
-const MIME = {
+const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
 }
 
-export class LocalTransport extends EventEmitter {
-  name = 'local'
+export class LocalTransport extends EventEmitter implements Transport {
+  readonly name = 'local'
 
-  #port
-  #host
-  #token
-  #server = null
-  #channels = new Set()
+  #port: number
+  #host: string
+  #token: string
+  #server: Server | null = null
+  #channels = new Set<WebSocket>()
 
-  constructor({ port, host, token }) {
+  constructor({ port, host, token }: { port: number; host: string; token: string }) {
     super()
     this.#port = port
     this.#host = host
@@ -36,47 +35,48 @@ export class LocalTransport extends EventEmitter {
 
   // A wildcard bind is not an address anyone can open, and browsers refuse
   // 0.0.0.0 outright. Loopback is the one address such a socket always answers on.
-  get url() {
+  get url(): string {
     const host = this.#host === '0.0.0.0' || this.#host === '::' ? '127.0.0.1' : this.#host
     return `http://${host}:${this.#port}/?t=${this.#token}`
   }
 
-  get port() {
+  get port(): number {
     return this.#port
   }
 
-  get loopbackOnly() {
+  get loopbackOnly(): boolean {
     return this.#host === '127.0.0.1' || this.#host === '::1' || this.#host === 'localhost'
   }
 
-  async start() {
-    this.#server = createServer((req, res) => this.#serve(req, res))
-    this.#server.on('upgrade', (req, socket) => this.#upgrade(req, socket))
-    await new Promise((resolve, reject) => {
-      this.#server.once('error', reject)
-      this.#server.listen(this.#port, this.#host, resolve)
+  async start(): Promise<void> {
+    const server = createServer((req, res) => this.#serve(req, res))
+    server.on('upgrade', (req, socket) => this.#upgrade(req, socket))
+    this.#server = server
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(this.#port, this.#host, resolve)
     })
   }
 
-  async stop() {
+  async stop(): Promise<void> {
     for (const channel of this.#channels) channel.close()
     this.#server?.close()
   }
 
-  broadcastBinary(chunk) {
+  broadcastBinary(chunk: Uint8Array): void {
     for (const channel of this.#channels) {
       if (!channel.closed) channel.sendBinary(chunk)
     }
   }
 
-  broadcastJson(value) {
+  broadcastJson(value: ServerMessage): void {
     for (const channel of this.#channels) {
       if (!channel.closed) channel.sendJson(value)
     }
   }
 
-  async #serve(req, res) {
-    const url = new URL(req.url, 'http://localhost')
+  async #serve(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const url = new URL(req.url ?? '/', 'http://localhost')
     let file = url.pathname === '/' ? 'index.html' : url.pathname.slice(1)
     file = normalize(file).replace(/^(\.\.[/\\])+/, '')
     try {
@@ -94,8 +94,8 @@ export class LocalTransport extends EventEmitter {
     }
   }
 
-  #upgrade(req, socket) {
-    const url = new URL(req.url, 'http://localhost')
+  #upgrade(req: IncomingMessage, socket: Duplex): void {
+    const url = new URL(req.url ?? '/', 'http://localhost')
     if (!timingSafeEqualString(url.searchParams.get('t'), this.#token)) {
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
       socket.destroy()

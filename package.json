@@ -4,10 +4,12 @@
   "description": "Share one Claude Code session with a second person, live",
   "type": "module",
   "bin": {
-    "c2c": "src/cli.js"
+    "c2c": "dist/src/cli.js"
   },
   "scripts": {
-    "test": "node --test \"test/*.test.js\""
+    "build": "tsc -p tsconfig.json && chmod +x dist/src/cli.js dist/bigtop/server.js",
+    "check": "tsc --noEmit -p tsconfig.json",
+    "test": "npm run build && node --test \"dist/test/*.test.js\""
   },
   "engines": {
     "node": ">=20"

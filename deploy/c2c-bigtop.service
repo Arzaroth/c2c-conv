@@ -9,7 +9,7 @@ Type=simple
 User=c2c
 Group=c2c
 WorkingDirectory=/opt/c2c-conv
-ExecStart=/usr/bin/node /opt/c2c-conv/bigtop/server.js --port 8080 --bind 127.0.0.1
+ExecStart=/usr/bin/node /opt/c2c-conv/dist/bigtop/server.js --port 8080 --bind 127.0.0.1
 Restart=always
 RestartSec=2
 

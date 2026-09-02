@@ -1,4 +1,4 @@
-import { createServer as createUnixServer } from 'node:net'
+import { createServer as createUnixServer, type Server as UnixServer } from 'node:net'
 import { stat, unlink, writeFile } from 'node:fs/promises'
 import { randomBytes } from 'node:crypto'
 
@@ -7,7 +7,7 @@ import { PaneStream } from './panestream.js'
 import { TranscriptStream } from './transcript.js'
 import { Tunnel } from './tunnel.js'
 import { Policy, GALLERY, YOLO } from './policy.js'
-import { Whiteface, WHITEFACE_COMMANDS } from './whiteface.js'
+import { Whiteface, isWhitefaceCommand } from './whiteface.js'
 import { LocalTransport } from './transport/local.js'
 import { BigtopTransport } from './transport/bigtop.js'
 import { controlSocket, ensureStateDir, metaFile, paneFile, statusFile } from './paths.js'
@@ -15,69 +15,93 @@ import { controlSocket, ensureStateDir, metaFile, paneFile, statusFile } from '.
 const MAX_PANE_BYTES = Number(process.env.C2C_MAX_PANE_BYTES) || 8 * 1024 * 1024
 const MAX_HISTORY = 500
 
-export class Ringmaster {
-  #session
-  #token
-  #policy = new Policy()
-  #bozos = new Map()
-  #transports = []
-  #pane = null
-  #control = null
-  #bigtopStatus = null
-  #paneState = 'unknown'
-  #paneSize = { cols: 0, rows: 0 }
-  #stateTimer = null
-  #writes = Promise.resolve()
-  #transcript = null
-  #history = []
-  #tunnel = null
-  #tunnelUrl = null
-  #wantsTunnel = false
-  #whiteface
+interface RingmasterOptions {
+  session: string
+  port: number
+  host?: string
+  token?: string
+  bigtop?: { url: string; room: string; token?: string } | null
+  tunnel?: boolean
+  mode?: string
+  whiteface?: string
+}
 
-  constructor({ session, port, host = '127.0.0.1', token, bigtop, tunnel = false, mode, whiteface }) {
+export interface Bozo {
+  id: string
+  name: string
+  origin: string
+  channel: Channel
+}
+
+export class Ringmaster {
+  #session: string
+  #token: string
+  #policy = new Policy()
+  #bozos = new Map<string, Bozo>()
+  #transports: Transport[] = []
+  #local: LocalTransport
+  #bigtop: BigtopTransport | null = null
+  #pane: PaneStream | null = null
+  #control: UnixServer | null = null
+  #bigtopStatus: BigtopStatus | null = null
+  #paneState: PaneState = 'unknown'
+  #paneSize: PaneSize = { cols: 0, rows: 0 }
+  #stateTimer: NodeJS.Timeout | undefined
+  #writes: Promise<unknown> = Promise.resolve()
+  #transcript: TranscriptStream | null = null
+  #history: TranscriptEntry[] = []
+  #tunnel: Tunnel | null = null
+  #tunnelUrl: string | null = null
+  #wantsTunnel = false
+  #whiteface: Whiteface<Bozo>
+
+  constructor({ session, port, host = '127.0.0.1', token, bigtop, tunnel = false, mode, whiteface }: RingmasterOptions) {
     this.#wantsTunnel = tunnel
-    this.#whiteface = new Whiteface(whiteface)
+    this.#whiteface = new Whiteface<Bozo>(whiteface)
     if (mode) this.#policy.setMode(mode)
     this.#session = session
     this.#token = token || randomBytes(16).toString('hex')
 
-    this.#transports.push(new LocalTransport({ port, host, token: this.#token }))
+    this.#local = new LocalTransport({ port, host, token: this.#token })
+    this.#transports.push(this.#local)
 
     if (bigtop?.url) {
-      this.#transports.push(
-        new BigtopTransport({ url: bigtop.url, room: bigtop.room, token: bigtop.token || this.#token })
-      )
+      this.#bigtop = new BigtopTransport({
+        url: bigtop.url,
+        room: bigtop.room,
+        token: bigtop.token || this.#token,
+      })
+      this.#transports.push(this.#bigtop)
     }
   }
 
-  get token() {
+  get token(): string {
     return this.#token
   }
 
-  get local() {
-    return this.#transports.find((t) => t.name === 'local')
+  get local(): LocalTransport {
+    return this.#local
   }
 
-  get bigtop() {
-    return this.#transports.find((t) => t.name === 'bigtop')
+  get bigtop(): BigtopTransport | null {
+    return this.#bigtop
   }
 
-  get url() {
-    return this.local.url
+  get url(): string {
+    return this.#local.url
   }
 
-  get policy() {
+  get policy(): Policy {
     return this.#policy
   }
 
-  async start() {
+  async start(): Promise<void> {
     await ensureStateDir(this.#session)
     await writeFile(paneFile(this.#session), '')
     await tmux.startPipe(this.#session, paneFile(this.#session))
 
     this.#pane = new PaneStream(paneFile(this.#session))
-    this.#pane.on('data', (chunk) => {
+    this.#pane.on('data', (chunk: Buffer) => {
       for (const transport of this.#transports) transport.broadcastBinary(chunk)
     })
     await this.#pane.start()
@@ -85,8 +109,8 @@ export class Ringmaster {
     this.#policy.onEvent((event) => this.#onPolicyEvent(event))
 
     for (const transport of this.#transports) {
-      transport.on('bozo', (channel) => this.#onGuest(channel))
-      transport.on('status', (status) => {
+      transport.on('bozo', (channel: Channel) => this.#onGuest(channel))
+      transport.on('status', (status: BigtopStatus) => {
         this.#bigtopStatus = status
         console.log(`[bigtop] ${JSON.stringify(status)}`)
       })
@@ -94,12 +118,12 @@ export class Ringmaster {
     }
 
     this.#transcript = new TranscriptStream(this.#session)
-    this.#transcript.on('entry', (entry) => {
+    this.#transcript.on('entry', (entry: TranscriptEntry) => {
       this.#history.push(entry)
       if (this.#history.length > MAX_HISTORY) this.#history.shift()
       this.#broadcastJson({ type: 'transcript', entry })
     })
-    this.#transcript.on('located', (info) => console.log(`[transcript] ${info.path}`))
+    this.#transcript.on('located', (info: { path: string }) => console.log(`[transcript] ${info.path}`))
     this.#transcript.start()
 
     // cloudflared connects out, so the ringmaster stays on loopback and there is
@@ -109,7 +133,7 @@ export class Ringmaster {
     // blocking on it delays the metadata file that tells `c2c host` the session
     // is up. It concluded the ringmaster had failed and killed the session.
     if (this.#wantsTunnel) {
-      this.#tunnel = new Tunnel({ port: this.local.port })
+      this.#tunnel = new Tunnel({ port: this.#local.port })
       this.#tunnel.on('closed', () => {
         this.#tunnelUrl = null
         console.log('[tunnel] cloudflared exited')
@@ -121,7 +145,7 @@ export class Ringmaster {
           console.log(`[tunnel] ${url}`)
           await this.#writeMeta()
         })
-        .catch((err) => {
+        .catch((err: Error) => {
           console.error(`[tunnel] ${err.message}`)
           this.#tunnel = null
         })
@@ -134,16 +158,16 @@ export class Ringmaster {
     await this.#writeMeta()
   }
 
-  announce(text) {
+  announce(text: string): void {
     this.#broadcastJson({ type: 'notice', text })
   }
 
   // Distinct from a notice so bozos know not to keep reconnecting.
-  announceEnd(text) {
+  announceEnd(text: string): void {
     this.#broadcastJson({ type: 'bye', text })
   }
 
-  async stop() {
+  async stop(): Promise<void> {
     clearInterval(this.#stateTimer)
     this.#tunnel?.stop()
     await this.#transcript?.stop()
@@ -159,7 +183,7 @@ export class Ringmaster {
     }
   }
 
-  #watchPaneState() {
+  #watchPaneState(): void {
     this.#stateTimer = setInterval(async () => {
       try {
         const state = await tmux.paneState(this.#session)
@@ -182,7 +206,7 @@ export class Ringmaster {
     }, 1000)
   }
 
-  async #screenMessage() {
+  async #screenMessage(): Promise<ServerMessage> {
     return {
       type: 'screen',
       data: await tmux.capturePane(this.#session),
@@ -190,61 +214,61 @@ export class Ringmaster {
     }
   }
 
-  async #reseed() {
+  async #reseed(): Promise<void> {
     this.#broadcastJson(await this.#screenMessage())
   }
 
-  async #sendScreen(channel) {
+  async #sendScreen(channel: Channel): Promise<void> {
     if (!channel.closed) channel.sendJson(await this.#screenMessage())
   }
 
   // pipe-pane appends for the lifetime of the session. Rotating loses the bytes
   // written between stop and start, so bozos get a fresh snapshot afterwards
   // rather than a stream with a hole in it.
-  async #rotatePaneFile() {
+  async #rotatePaneFile(): Promise<void> {
     const file = paneFile(this.#session)
     const { size } = await stat(file)
     if (size < MAX_PANE_BYTES) return
 
     await tmux.stopPipe(this.#session)
     await writeFile(file, '')
-    this.#pane.rewind()
+    this.#pane?.rewind()
     await tmux.startPipe(this.#session, file)
     await this.#reseed()
   }
 
-  #links() {
+  #links(): SessionLinks {
     const tunnel = this.#tunnelUrl ? `${this.#tunnelUrl}/?t=${this.#token}` : null
     // The whiteface link goes on whichever URL a browser can reach from elsewhere.
-    const reach = tunnel ?? this.bigtop?.bozoUrl ?? this.local.url
+    const reach = tunnel ?? this.#bigtop?.bozoUrl ?? this.#local.url
     return {
-      url: this.local.url,
+      url: this.#local.url,
       tunnel,
       whitefaceUrl: this.#whiteface.enabled ? `${reach}&w=${this.#whiteface.token}` : null,
     }
   }
 
-  async #writeMeta() {
+  async #writeMeta(): Promise<void> {
     await writeFile(metaFile(this.#session), JSON.stringify(this.#meta(), null, 2))
   }
 
-  #meta() {
-    const local = this.local
+  #meta(): SessionMeta {
+    const local = this.#local
     return {
       session: this.#session,
       pid: process.pid,
       port: local.port,
       token: this.#token,
       ...this.#links(),
-      bigtop: this.bigtop ? { url: this.bigtop.bozoUrl } : null,
+      bigtop: this.#bigtop ? { url: this.#bigtop.bozoUrl } : null,
     }
   }
 
-  async #onGuest(channel) {
-    const bozo = { id: channel.id, name: 'bozo', origin: channel.origin, channel }
+  async #onGuest(channel: Channel): Promise<void> {
+    const bozo: Bozo = { id: channel.id, name: 'bozo', origin: channel.origin, channel }
     this.#bozos.set(channel.id, bozo)
 
-    channel.on('text', (raw) => this.#onGuestMessage(bozo, raw))
+    channel.on('text', (raw: string) => this.#onGuestMessage(bozo, raw))
     channel.on('close', () => {
       this.#bozos.delete(channel.id)
       if (this.#whiteface.release(bozo)) {
@@ -261,7 +285,7 @@ export class Ringmaster {
   // The greeting is also where the whiteface is claimed, so the reply carries
   // the role and, for the holder, the queue as it stands. A whiteface that
   // reconnects after messages piled up sees them straight away.
-  async #hoink(bozo, { name, whiteface: token }) {
+  async #hoink(bozo: Bozo, { name, whiteface: token }: { name?: unknown; whiteface?: string }): Promise<void> {
     if (typeof name === 'string') {
       bozo.name = name.slice(0, 40).replace(/[^\w .-]/g, '') || 'bozo'
     }
@@ -292,8 +316,10 @@ export class Ringmaster {
     this.#notifyHost(`c2c: ${bozo.name} hoinked in via ${bozo.origin} (${this.#bozos.size} here)`)
   }
 
-  #onGuestMessage(bozo, raw) {
-    let msg
+  #onGuestMessage(bozo: Bozo, raw: string): void {
+    // Off an untrusted socket: this says what the shape claims to be, and every
+    // field is still checked before it is used.
+    let msg: BozoMessage
     try {
       msg = JSON.parse(raw)
     } catch {
@@ -308,9 +334,9 @@ export class Ringmaster {
     // Host control, run through the same dispatcher as c2c ctl. The gate is
     // here rather than in the UI: a bozo opening its own socket and asking to
     // approve is refused exactly the same.
-    if (WHITEFACE_COMMANDS.has(msg.type)) {
-      const reply = this.#whiteface.holds(bozo)
-        ? this.#handleControl({ ...msg, cmd: msg.type })
+    if (isWhitefaceCommand(msg.type)) {
+      const reply: ControlReply = this.#whiteface.holds(bozo)
+        ? this.#handleControl({ ...msg, cmd: msg.type } as ControlRequest)
         : { ok: false, error: 'not the whiteface' }
       bozo.channel.sendJson({ type: 'control', cmd: msg.type, ...reply })
       return
@@ -357,7 +383,7 @@ export class Ringmaster {
 
   // Keys deliberately skip the prompt guard: answering a dialog is the whole
   // reason they exist. Digits go in as literal text so numbered menus work.
-  async #pressKey(key) {
+  async #pressKey(key: string): Promise<void> {
     if (/^[1-9]$/.test(key)) await tmux.sendText(this.#session, key)
     else await tmux.sendKey(this.#session, key)
   }
@@ -365,7 +391,7 @@ export class Ringmaster {
   // Two writers on one pty interleave, so every text injection is serialised
   // behind the last one. Keys deliberately skip this queue: they are single
   // atomic keystrokes and should not wait out a text injection's timeout.
-  #inject(text) {
+  #inject(text: string): Promise<unknown> {
     this.#writes = this.#writes
       .then(() => this.#injectNow(text))
       .catch((err) => {
@@ -379,7 +405,7 @@ export class Ringmaster {
     return this.#writes
   }
 
-  async #injectNow(text) {
+  async #injectNow(text: string): Promise<boolean> {
     console.log(`[inject] start: ${JSON.stringify(text.slice(0, 40))}`)
     const state = await tmux.waitForPrompt(this.#session)
     if (state !== 'prompt') return this.#hold(state, text)
@@ -398,7 +424,7 @@ export class Ringmaster {
   // renders them, so a single "is the box empty" check passes while the text is
   // still in flight and the next queued message then catches it mid-render and
   // is held as a phantom draft. Wait for the box to read empty twice running.
-  async #settle(timeoutMs = 5000) {
+  async #settle(timeoutMs = 5000): Promise<void> {
     const deadline = Date.now() + timeoutMs
     await new Promise((r) => setTimeout(r, 250))
 
@@ -414,19 +440,20 @@ export class Ringmaster {
     }
   }
 
-  #hold(reason, text) {
-    const detail = {
+  #hold(reason: HoldReason, text: string): boolean {
+    const reasons: Partial<Record<HoldReason, string>> = {
       draft: 'you have an unsent draft in the prompt box',
       'copy-mode': 'the pane is in tmux copy mode - press q to leave it',
       error: 'the write failed',
-    }[reason] ?? `pane is ${reason}`
+    }
+    const detail = reasons[reason] ?? `pane is ${reason}`
     console.log(`[inject] held: ${reason}`)
     this.#notifyHost(`c2c: HELD a bozo message, ${detail}`)
     this.#broadcastJson({ type: 'policy:held', state: reason, text })
     return false
   }
 
-  #onPolicyEvent(event) {
+  #onPolicyEvent(event: PolicyEvent): void {
     if (event.type === 'approved') {
       this.#inject(event.text)
       this.#notifyHost(`c2c: released #${event.id} from ${event.bozo}`)
@@ -444,17 +471,17 @@ export class Ringmaster {
     // message is not the rest of the gallery's business, especially one the
     // host is about to drop.
     if (event.type === 'queued') this.#whiteface.holder?.channel.sendJson({ ...event, type: 'policy:queued' })
-    else this.#broadcastJson({ ...event, type: `policy:${event.type}` })
+    else this.#broadcastJson({ ...event, type: `policy:${event.type}` } as PolicyBroadcast)
     this.#writeStatusLine()
   }
 
-  #notifyHost(message) {
+  #notifyHost(message: string): void {
     tmux.notify(this.#session, message)
   }
 
   // Kept in a file so the tmux status line is a cheap cat rather than a node
   // process spawned every couple of seconds.
-  async #writeStatusLine() {
+  async #writeStatusLine(): Promise<void> {
     const pending = this.#policy.list().length
     const bozos = this.#bozos.size
     const mode = this.#policy.mode === YOLO ? '#[fg=#ff2e4c,bold]YOLO' : '#[fg=#ffd93d]gallery'
@@ -472,29 +499,29 @@ export class Ringmaster {
     } catch {}
   }
 
-  #broadcastJson(value) {
+  #broadcastJson(value: ServerMessage): void {
     for (const transport of this.#transports) transport.broadcastJson(value)
   }
 
-  async #startControl() {
+  async #startControl(): Promise<void> {
     const path = controlSocket(this.#session)
     try {
       await unlink(path)
     } catch {}
 
-    this.#control = createUnixServer((socket) => {
+    const control = createUnixServer((socket) => {
       let buffer = ''
       socket.on('data', (chunk) => {
         buffer += chunk
-        let index
+        let index: number
         while ((index = buffer.indexOf('\n')) !== -1) {
           const line = buffer.slice(0, index)
           buffer = buffer.slice(index + 1)
           if (!line.trim()) continue
-          let reply
+          let reply: ControlReply
           try {
             reply = this.#handleControl(JSON.parse(line))
-          } catch (err) {
+          } catch {
             reply = { ok: false, error: 'not json' }
           }
           socket.write(JSON.stringify(reply) + '\n')
@@ -503,22 +530,23 @@ export class Ringmaster {
       socket.on('error', () => {})
     })
 
-    await new Promise((resolve, reject) => {
-      this.#control.once('error', reject)
-      this.#control.listen(path, resolve)
+    this.#control = control
+    await new Promise<void>((resolve, reject) => {
+      control.once('error', reject)
+      control.listen(path, resolve)
     })
   }
 
   // Never throws: both the control socket and the whiteface send the reply on.
-  #handleControl(msg) {
+  #handleControl(msg: ControlRequest): ControlReply {
     try {
       return this.#dispatchControl(msg)
     } catch (err) {
-      return { ok: false, error: err.message }
+      return { ok: false, error: (err as Error).message }
     }
   }
 
-  #dispatchControl(msg) {
+  #dispatchControl(msg: ControlRequest): ControlReply {
     switch (msg.cmd) {
       case 'status':
         return {
@@ -528,8 +556,8 @@ export class Ringmaster {
           bozos: [...this.#bozos.values()].map((g) => ({ id: g.id, name: g.name, via: g.origin })),
           pending: this.#policy.list(),
           ...this.#links(),
-          bigtop: this.bigtop
-            ? { url: this.bigtop.bozoUrl, connected: this.bigtop.connected, last: this.#bigtopStatus }
+          bigtop: this.#bigtop
+            ? { url: this.#bigtop.bozoUrl, connected: this.#bigtop.connected, last: this.#bigtopStatus }
             : null,
         }
       case 'mode': {
@@ -545,10 +573,9 @@ export class Ringmaster {
           this.#notifyHost('c2c: nothing waiting')
           return { ok: true, pending: 0 }
         }
-        const entry = msg.cmd === 'approve-next'
-          ? this.#policy.approve(oldest.id)
-          : this.#policy.deny(oldest.id)
-        return { ok: true, [msg.cmd === 'approve-next' ? 'approved' : 'denied']: entry }
+        return msg.cmd === 'approve-next'
+          ? { ok: true, approved: this.#policy.approve(oldest.id) }
+          : { ok: true, denied: this.#policy.deny(oldest.id) }
       }
       case 'list':
         return { ok: true, pending: this.#policy.list() }
@@ -574,7 +601,7 @@ export class Ringmaster {
         }, 150)
         return { ok: true, stopping: true }
       default:
-        return { ok: false, error: `unknown command: ${msg.cmd}` }
+        return { ok: false, error: `unknown command: ${(msg as ControlRequest).cmd}` }
     }
   }
 }

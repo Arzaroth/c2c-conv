@@ -27,6 +27,7 @@ test('a block-form prompt becomes a user turn', () => {
     type: 'user',
     message: { content: [{ type: 'text', text: 'ship the patch' }] },
   })
+  assert.ok(entry)
   assert.equal(entry.role, 'user')
   assert.equal(entry.text, 'ship the patch')
 })
@@ -72,6 +73,7 @@ test('an assistant turn keeps its text and names its tools', () => {
       ],
     },
   })
+  assert.ok(entry)
   assert.equal(entry.role, 'assistant')
   assert.equal(entry.text, 'Looking at the config.')
   assert.deepEqual(entry.tools, ['Read', 'Bash'])
@@ -82,6 +84,7 @@ test('a tool-only assistant turn still reports the tools', () => {
     type: 'assistant',
     message: { content: [{ type: 'tool_use', name: 'Edit', input: {} }] },
   })
+  assert.ok(entry)
   assert.equal(entry.text, '')
   assert.deepEqual(entry.tools, ['Edit'])
 })

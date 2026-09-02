@@ -6,8 +6,20 @@ import { randomBytes } from 'node:crypto'
 import { Bigtop, resolvePublic } from '../bigtop/server.js'
 import { MAX_BOZOS } from '../src/policy.js'
 
-let bigtop
-let base
+// Whatever came back off the wire: these tests poke at frames the bigtop is
+// only supposed to relay, so nothing here knows the shape in advance.
+type Frame = any
+
+interface Peer {
+  ws: WebSocket
+  send(value: unknown): void
+  sendRaw(value: string | ArrayBufferView): void
+  next(): Promise<Frame>
+  close(): void
+}
+
+let bigtop: Bigtop
+let base: string
 
 before(async () => {
   bigtop = new Bigtop()
@@ -17,12 +29,12 @@ before(async () => {
 
 after(() => bigtop.close())
 
-function open(url, { binary = false } = {}) {
-  return new Promise((resolve, reject) => {
+function open(url: string, { binary = false }: { binary?: boolean } = {}): Promise<Peer> {
+  return new Promise<Peer>((resolve, reject) => {
     const ws = new WebSocket(url)
     if (binary) ws.binaryType = 'arraybuffer'
-    const messages = []
-    const waiters = []
+    const messages: Frame[] = []
+    const waiters: ((value: Frame) => void)[] = []
 
     ws.addEventListener('message', (event) => {
       const value = typeof event.data === 'string' ? JSON.parse(event.data) : event.data
@@ -36,7 +48,7 @@ function open(url, { binary = false } = {}) {
         send: (value) => ws.send(typeof value === 'string' ? value : JSON.stringify(value)),
         sendRaw: (value) => ws.send(value),
         next: () =>
-          new Promise((res, rej) => {
+          new Promise<Frame>((res, rej) => {
             if (messages.length) return res(messages.shift())
             const timer = setTimeout(() => rej(new Error('timed out waiting for a message')), 2000)
             waiters.push((value) => {
@@ -142,7 +154,7 @@ test('a second host cannot take over a claimed room', async () => {
 
 // A real client answers pings automatically, so a silent peer has to be built
 // from a raw socket that completes the handshake and then never replies.
-function silentPeer(port, path) {
+function silentPeer(port: number, path: string): Promise<import('node:net').Socket> {
   return new Promise((resolve, reject) => {
     const key = randomBytes(16).toString('base64')
     const socket = netConnect(port, '127.0.0.1', () => {
@@ -151,7 +163,7 @@ function silentPeer(port, path) {
         `Connection: Upgrade\r\nSec-WebSocket-Key: ${key}\r\nSec-WebSocket-Version: 13\r\n\r\n`
       )
     })
-    socket.once('data', (chunk) => {
+    socket.once('data', (chunk: Buffer) => {
       const status = chunk.toString().split('\r\n')[0]
       if (status.includes('101')) resolve(socket)
       else reject(new Error(status))
@@ -239,7 +251,7 @@ test('claiming rooms is capped', async () => {
   const address = await capped.listen(0, '127.0.0.1')
   const url = `ws://127.0.0.1:${address.port}`
 
-  const hosts = []
+  const hosts: Peer[] = []
   for (let i = 0; i < 64; i++) {
     hosts.push(await open(`${url}/uplink?room=room${i}&t=secret-token`))
   }
@@ -258,7 +270,7 @@ test('a room fills up at MAX_BOZOS', async () => {
   const url = `ws://127.0.0.1:${address.port}`
 
   const host = await open(`${url}/uplink?room=clowncar&t=secret-token`)
-  const riders = []
+  const riders: Peer[] = []
   for (let i = 0; i < MAX_BOZOS; i++) {
     riders.push(await open(`${url}/bozo?room=clowncar&t=secret-token`))
   }

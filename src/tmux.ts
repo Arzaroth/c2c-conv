@@ -16,14 +16,14 @@ export const SERVER_ARGS = ['-L', SERVER, '-f', '/dev/null']
 // The timeout matters: send-keys blocks indefinitely if the pane is sitting at
 // a tmux command prompt, and a hung call would wedge the write queue for the
 // rest of the session.
-function tmux(args) {
+function tmux(args: string[]) {
   return run('tmux', [...SERVER_ARGS, ...args], {
     maxBuffer: 16 * 1024 * 1024,
     timeout: 10000,
   })
 }
 
-export async function hasSession(name) {
+export async function hasSession(name: string): Promise<boolean> {
   try {
     await tmux(['has-session', '-t', name])
     return true
@@ -32,7 +32,10 @@ export async function hasSession(name) {
   }
 }
 
-export async function newSession({ name, cwd, command, cols = 200, rows = 50 }) {
+export async function newSession(
+  { name, cwd, command, cols = 200, rows = 50 }:
+  { name: string; cwd: string; command: string; cols?: number; rows?: number },
+): Promise<void> {
   await tmux([
     'new-session', '-d',
     '-s', name,
@@ -45,8 +48,11 @@ export async function newSession({ name, cwd, command, cols = 200, rows = 50 }) 
 
 // The status line reads a file the ringmaster keeps up to date rather than shelling
 // out to the CLI every couple of seconds.
-export async function configureHost(name, { node, cli, status }) {
-  const quote = (value) => `'${String(value).replace(/'/g, `'\\''`)}'`
+export async function configureHost(
+  name: string,
+  { node, cli, status }: { node: string; cli: string; status: string },
+): Promise<void> {
+  const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`
   // Output from run-shell is opened in a view-mode pane, which hijacks the
   // session: the pane stops being claude and starts interpreting keystrokes as
   // copy-mode commands. The bindings have to be completely silent.
@@ -55,7 +61,7 @@ export async function configureHost(name, { node, cli, status }) {
   // in would be wrong with more than one shared session, because key tables are
   // server-global: the last session configured would win, and approving from one
   // session would release a message into another.
-  const run = (args) => `${quote(node)} ${quote(cli)} ${args} -s '#{session_name}' >/dev/null 2>&1`
+  const run = (args: string) => `${quote(node)} ${quote(cli)} ${args} -s '#{session_name}' >/dev/null 2>&1`
 
   await tmux(['set-option', '-t', name, 'status', 'on'])
   await tmux(['set-option', '-t', name, 'status-interval', '2'])
@@ -78,26 +84,26 @@ export async function configureHost(name, { node, cli, status }) {
   }
 }
 
-export async function killSession(name) {
+export async function killSession(name: string): Promise<void> {
   try {
     await tmux(['kill-session', '-t', name])
   } catch {}
 }
 
-export async function paneSize(name) {
+export async function paneSize(name: string): Promise<PaneSize> {
   const { stdout } = await tmux(['display-message', '-p', '-t', name, '#{pane_width} #{pane_height}'])
-  const [cols, rows] = stdout.trim().split(/\s+/).map(Number)
+  const [cols, rows] = stdout.trim().split(/\s+/).map(Number) as [number, number]
   return { cols, rows }
 }
 
-export async function capturePane(name) {
+export async function capturePane(name: string): Promise<string> {
   const { stdout } = await tmux(['capture-pane', '-p', '-e', '-t', name])
   return stdout
 }
 
 // -e wraps each word in its own SGR pair, which breaks phrase matching, so
 // state detection reads an uncoloured capture instead.
-export async function capturePlain(name) {
+export async function capturePlain(name: string): Promise<string> {
   const { stdout } = await tmux(['capture-pane', '-p', '-t', name])
   return stdout
 }
@@ -105,13 +111,13 @@ export async function capturePlain(name) {
 // The live stream positions the cursor relatively, so a bozo seeded with a
 // snapshot has to start from the host's actual cursor or every later redraw
 // lands a row off.
-export async function cursor(name) {
+export async function cursor(name: string): Promise<CursorPosition> {
   const { stdout } = await tmux(['display-message', '-p', '-t', name, '#{cursor_x} #{cursor_y}'])
-  const [x, y] = stdout.trim().split(/\s+/).map(Number)
+  const [x, y] = stdout.trim().split(/\s+/).map(Number) as [number, number]
   return { x, y }
 }
 
-export async function panePid(name) {
+export async function panePid(name: string): Promise<number | null> {
   try {
     const { stdout } = await tmux(['display-message', '-p', '-t', name, '#{pane_pid}'])
     return Number(stdout.trim()) || null
@@ -120,7 +126,7 @@ export async function panePid(name) {
   }
 }
 
-export async function paneAlive(name) {
+export async function paneAlive(name: string): Promise<boolean> {
   try {
     const { stdout } = await tmux(['display-message', '-p', '-t', name, '#{pane_dead}'])
     return stdout.trim() === '0'
@@ -138,7 +144,7 @@ const BUSY = [/esc to interrupt/i]
 // turns and have no rule above them, so scanning for a bare marker would read
 // the last submitted message back as if it were an unsent draft.
 // Returns null when there is no input box on screen at all.
-export function readPromptBox(screen) {
+export function readPromptBox(screen: string): string | null {
   const tail = screen.split('\n').slice(-8)
   const index = tail.findIndex((line) => /^\s*❯/.test(line))
   if (index <= 0 || !/^\s*─{20,}/.test(tail[index - 1])) return null
@@ -148,14 +154,14 @@ export function readPromptBox(screen) {
 // Injecting text while a modal is up types into nothing and the trailing Enter
 // confirms whatever option is highlighted, so every write path has to check
 // this first.
-export function classifyScreen(screen) {
+export function classifyScreen(screen: string): Extract<PaneState, 'dialog' | 'busy' | 'prompt' | 'unknown'> {
   if (DIALOG.some((re) => re.test(screen))) return 'dialog'
   if (BUSY.some((re) => re.test(screen))) return 'busy'
   if (readPromptBox(screen) !== null) return 'prompt'
   return 'unknown'
 }
 
-export async function paneInMode(name) {
+export async function paneInMode(name: string): Promise<boolean> {
   try {
     const { stdout } = await tmux(['display-message', '-p', '-t', name, '#{pane_in_mode}'])
     return stdout.trim() === '1'
@@ -164,7 +170,7 @@ export async function paneInMode(name) {
   }
 }
 
-export async function paneState(name) {
+export async function paneState(name: string): Promise<PaneState> {
   if (!(await paneAlive(name))) return 'dead'
   // In copy or view mode the pane is no longer claude's input: sent text is
   // read as copy-mode commands, where a stray "t" or "/" opens a tmux prompt
@@ -176,11 +182,11 @@ export async function paneState(name) {
 // Anything sitting in the input box is the host's unsent draft, and injecting
 // would splice bozo text into the middle of it. null means the box is not on
 // screen, which is not the same as it being empty.
-export async function promptDraft(name) {
+export async function promptDraft(name: string): Promise<string | null> {
   return readPromptBox(await capturePlain(name))
 }
 
-export async function waitForPrompt(name, timeoutMs = 15000) {
+export async function waitForPrompt(name: string, timeoutMs = 15000): Promise<PaneState> {
   const deadline = Date.now() + timeoutMs
   let state = await paneState(name)
   while (state === 'busy' && Date.now() < deadline) {
@@ -192,36 +198,36 @@ export async function waitForPrompt(name, timeoutMs = 15000) {
 
 // -l sends the text literally so bozo input can never be read as a tmux key
 // name, and -- stops a leading dash from being parsed as a flag.
-export async function sendText(name, text) {
+export async function sendText(name: string, text: string): Promise<void> {
   await tmux(['send-keys', '-t', name, '-l', '--', text])
 }
 
-export async function sendKey(name, key) {
+export async function sendKey(name: string, key: string): Promise<void> {
   await tmux(['send-keys', '-t', name, key])
 }
 
-export async function submit(name, text) {
+export async function submit(name: string, text: string): Promise<void> {
   await sendText(name, text)
   await sendKey(name, 'Enter')
 }
 
-export async function notify(name, message) {
+export async function notify(name: string, message: string): Promise<void> {
   try {
     await tmux(['display-message', '-t', name, message])
   } catch {}
 }
 
-export async function startPipe(name, file) {
+export async function startPipe(name: string, file: string): Promise<void> {
   await tmux(['pipe-pane', '-t', name])
   await tmux(['pipe-pane', '-t', name, `cat >> ${JSON.stringify(file)}`])
 }
 
-export async function stopPipe(name) {
+export async function stopPipe(name: string): Promise<void> {
   try {
     await tmux(['pipe-pane', '-t', name])
   } catch {}
 }
 
-export function attachArgs(name) {
+export function attachArgs(name: string): string[] {
   return ['-L', SERVER, '-f', '/dev/null', 'attach-session', '-t', name]
 }

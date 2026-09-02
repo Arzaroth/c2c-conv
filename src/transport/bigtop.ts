@@ -5,25 +5,27 @@ const BACKOFF_MAX = 15000
 
 // One outbound socket carries every bozo in the room, so bozo-addressed
 // traffic is enveloped and broadcasts are sent once rather than per bozo.
-class BigtopBozo extends EventEmitter {
+class BigtopBozo extends EventEmitter implements Channel {
   closed = false
-  origin = 'bigtop'
+  readonly origin = 'bigtop'
+  readonly id: string
+  readonly uplink: BigtopTransport
 
-  constructor(id, uplink) {
+  constructor(id: string, uplink: BigtopTransport) {
     super()
     this.id = id
     this.uplink = uplink
   }
 
-  sendJson(payload) {
+  sendJson(payload: ServerMessage): void {
     this.uplink.sendTo(this.id, payload)
   }
 
-  sendBinary(chunk) {
+  sendBinary(chunk: Uint8Array): void {
     this.uplink.sendBinaryTo(this.id, chunk)
   }
 
-  close() {
+  close(): void {
     if (this.closed) return
     this.closed = true
     this.uplink.evict(this.id)
@@ -31,40 +33,40 @@ class BigtopBozo extends EventEmitter {
   }
 }
 
-export class BigtopTransport extends EventEmitter {
-  name = 'bigtop'
+export class BigtopTransport extends EventEmitter implements Transport {
+  readonly name = 'bigtop'
 
-  #url
-  #room
-  #token
-  #socket = null
-  #bozos = new Map()
+  #url: string
+  #room: string
+  #token: string
+  #socket: WebSocket | null = null
+  #bozos = new Map<string, BigtopBozo>()
   #backoff = BACKOFF_MIN
   #diagnosed = false
   #stopped = false
-  #timer = null
+  #timer: NodeJS.Timeout | undefined
 
-  constructor({ url, room, token }) {
+  constructor({ url, room, token }: { url: string; room: string; token: string }) {
     super()
     this.#url = url.replace(/\/$/, '')
     this.#room = room
     this.#token = token
   }
 
-  get bozoUrl() {
+  get bozoUrl(): string {
     const http = this.#url.replace(/^ws/, 'http')
     return `${http}/r/${encodeURIComponent(this.#room)}?t=${encodeURIComponent(this.#token)}`
   }
 
-  get connected() {
+  get connected(): boolean {
     return this.#socket?.readyState === WebSocket.OPEN
   }
 
-  async start() {
+  async start(): Promise<void> {
     this.#connect()
   }
 
-  async stop() {
+  async stop(): Promise<void> {
     this.#stopped = true
     clearTimeout(this.#timer)
     for (const bozo of this.#bozos.values()) bozo.close()
@@ -72,43 +74,43 @@ export class BigtopTransport extends EventEmitter {
     this.#socket?.close()
   }
 
-  broadcastBinary(chunk) {
+  broadcastBinary(chunk: Uint8Array): void {
     this.#send(chunk)
   }
 
-  broadcastJson(value) {
+  broadcastJson(value: ServerMessage): void {
     this.#send(JSON.stringify({ to: '*', payload: value }))
   }
 
-  sendTo(id, payload) {
+  sendTo(id: string, payload: ServerMessage): void {
     this.#send(JSON.stringify({ to: id, payload }))
   }
 
-  sendBinaryTo(id, chunk) {
-    this.#send(JSON.stringify({ to: id, bin: chunk.toString('base64') }))
+  sendBinaryTo(id: string, chunk: Uint8Array): void {
+    this.#send(JSON.stringify({ to: id, bin: Buffer.from(chunk).toString('base64') }))
   }
 
-  evict(id) {
+  evict(id: string): void {
     this.#bozos.delete(id)
     this.#send(JSON.stringify({ to: id, evict: true }))
   }
 
-  #send(data) {
+  #send(data: string | Uint8Array): void {
     if (!this.connected) return
     try {
-      this.#socket.send(data)
+      this.#socket?.send(data)
     } catch {}
   }
 
-  #connect() {
+  #connect(): void {
     if (this.#stopped) return
 
     const url = `${this.#url}/uplink?room=${encodeURIComponent(this.#room)}&t=${encodeURIComponent(this.#token)}`
-    let socket
+    let socket: WebSocket
     try {
       socket = new WebSocket(url)
     } catch (err) {
-      this.#retry(err)
+      this.#retry(err as Error)
       return
     }
     this.#socket = socket
@@ -121,7 +123,7 @@ export class BigtopTransport extends EventEmitter {
 
     socket.addEventListener('message', (event) => {
       if (typeof event.data !== 'string') return
-      let msg
+      let msg: DownlinkFrame
       try {
         msg = JSON.parse(event.data)
       } catch {
@@ -143,7 +145,7 @@ export class BigtopTransport extends EventEmitter {
     socket.addEventListener('error', () => {})
   }
 
-  #dispatch(msg) {
+  #dispatch(msg: DownlinkFrame): void {
     if (msg.event === 'join') {
       const bozo = new BigtopBozo(msg.from, this)
       this.#bozos.set(msg.from, bozo)
@@ -169,7 +171,7 @@ export class BigtopTransport extends EventEmitter {
   // origin does, so one probe turns "code 1006" into something a deployer can
   // act on: a bad certificate, a refused connection, an unknown host. Runs once
   // per outage rather than on every retry.
-  async #diagnose() {
+  async #diagnose(): Promise<void> {
     if (this.#diagnosed || this.#stopped) return
     this.#diagnosed = true
 
@@ -185,15 +187,16 @@ export class BigtopTransport extends EventEmitter {
     } catch (err) {
       // fetch reports "fetch failed"; the actual reason (ECONNREFUSED, a TLS
       // error code, ENOTFOUND) is one level down in cause.
-      const cause = err.cause?.code ?? err.cause?.message
+      const failure = err as Error & { cause?: NodeJS.ErrnoException }
+      const cause = failure.cause?.code ?? failure.cause?.message
       this.emit('status', {
         connected: false,
-        hint: `cannot reach bigtop: ${cause ?? err.message}`,
+        hint: `cannot reach bigtop: ${cause ?? failure.message}`,
       })
     }
   }
 
-  #retry(err) {
+  #retry(err?: Error): void {
     if (this.#stopped) return
     if (err) this.emit('status', { connected: false, error: err.message })
     this.#timer = setTimeout(() => this.#connect(), this.#backoff)

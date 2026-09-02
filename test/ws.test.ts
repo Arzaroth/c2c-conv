@@ -2,13 +2,13 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 
-import { MAX_MESSAGE, WebSocket } from '../src/ws.js'
+import { MAX_MESSAGE, WebSocket, type WsSocket } from '../src/ws.js'
 
 class FakeSocket extends EventEmitter {
-  written = []
+  written: Buffer[] = []
   destroyed = false
   setNoDelay() {}
-  write(chunk) {
+  write(chunk: Buffer) {
     this.written.push(chunk)
   }
   end() {
@@ -16,7 +16,11 @@ class FakeSocket extends EventEmitter {
   }
 }
 
-function clientFrame(payload, opcode = 0x1, fin = true) {
+// The socket only ever touches four members of a real one, so the double is a
+// double rather than half a Duplex.
+const asSocket = (socket: FakeSocket) => socket as unknown as WsSocket
+
+function clientFrame(payload: string, opcode = 0x1, fin = true) {
   const data = Buffer.from(payload)
   const mask = Buffer.from([0x11, 0x22, 0x33, 0x44])
   const masked = Buffer.allocUnsafe(data.length)
@@ -36,8 +40,8 @@ function clientFrame(payload, opcode = 0x1, fin = true) {
 
 test('decodes a masked text frame', () => {
   const socket = new FakeSocket()
-  const ws = new WebSocket(socket)
-  const seen = []
+  const ws = new WebSocket(asSocket(socket))
+  const seen: string[] = []
   ws.on('text', (value) => seen.push(value))
 
   socket.emit('data', clientFrame('{"type":"submit"}'))
@@ -46,8 +50,8 @@ test('decodes a masked text frame', () => {
 
 test('reassembles a frame split across chunks', () => {
   const socket = new FakeSocket()
-  const ws = new WebSocket(socket)
-  const seen = []
+  const ws = new WebSocket(asSocket(socket))
+  const seen: string[] = []
   ws.on('text', (value) => seen.push(value))
 
   const frame = clientFrame('hello world')
@@ -58,8 +62,8 @@ test('reassembles a frame split across chunks', () => {
 
 test('handles two frames arriving in one chunk', () => {
   const socket = new FakeSocket()
-  const ws = new WebSocket(socket)
-  const seen = []
+  const ws = new WebSocket(asSocket(socket))
+  const seen: string[] = []
   ws.on('text', (value) => seen.push(value))
 
   socket.emit('data', Buffer.concat([clientFrame('one'), clientFrame('two')]))
@@ -68,8 +72,8 @@ test('handles two frames arriving in one chunk', () => {
 
 test('decodes a payload needing the 16-bit length field', () => {
   const socket = new FakeSocket()
-  const ws = new WebSocket(socket)
-  const seen = []
+  const ws = new WebSocket(asSocket(socket))
+  const seen: string[] = []
   ws.on('text', (value) => seen.push(value))
 
   const big = 'x'.repeat(400)
@@ -79,7 +83,7 @@ test('decodes a payload needing the 16-bit length field', () => {
 
 test('rejects an unmasked client frame', () => {
   const socket = new FakeSocket()
-  const ws = new WebSocket(socket)
+  const ws = new WebSocket(asSocket(socket))
   let closed = false
   ws.on('close', () => {
     closed = true
@@ -91,7 +95,7 @@ test('rejects an unmasked client frame', () => {
 
 test('server frames go out unmasked with the right header', () => {
   const socket = new FakeSocket()
-  const ws = new WebSocket(socket)
+  const ws = new WebSocket(asSocket(socket))
 
   ws.sendText('hi')
   const frame = socket.written[0]
@@ -102,7 +106,7 @@ test('server frames go out unmasked with the right header', () => {
 
 test('binary frames carry opcode 2', () => {
   const socket = new FakeSocket()
-  const ws = new WebSocket(socket)
+  const ws = new WebSocket(asSocket(socket))
 
   ws.sendBinary(Buffer.from([1, 2, 3]))
   assert.equal(socket.written[0][0], 0x82)
@@ -112,7 +116,7 @@ test('binary frames carry opcode 2', () => {
 // receive buffer grows until the process dies.
 test('a frame declaring an oversized payload closes the connection', () => {
   const socket = new FakeSocket()
-  const ws = new WebSocket(socket)
+  const ws = new WebSocket(asSocket(socket))
   let closed = false
   ws.on('close', () => {
     closed = true
@@ -129,7 +133,7 @@ test('a frame declaring an oversized payload closes the connection', () => {
 
 test('dribbling bytes towards an oversized frame closes the connection', () => {
   const socket = new FakeSocket()
-  const ws = new WebSocket(socket)
+  const ws = new WebSocket(asSocket(socket))
   let closed = false
   ws.on('close', () => {
     closed = true
@@ -147,7 +151,7 @@ test('dribbling bytes towards an oversized frame closes the connection', () => {
 
 test('fragments that reassemble past the cap close the connection', () => {
   const socket = new FakeSocket()
-  const ws = new WebSocket(socket)
+  const ws = new WebSocket(asSocket(socket))
   let closed = false
   ws.on('close', () => {
     closed = true
@@ -163,8 +167,8 @@ test('fragments that reassemble past the cap close the connection', () => {
 
 test('a normal sized message is unaffected', () => {
   const socket = new FakeSocket()
-  const ws = new WebSocket(socket)
-  const seen = []
+  const ws = new WebSocket(asSocket(socket))
+  const seen: string[] = []
   ws.on('text', (value) => seen.push(value))
 
   const payload = 'y'.repeat(60000)
