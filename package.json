@@ -12,6 +12,10 @@
   "engines": {
     "node": ">=20"
   },
+  "devDependencies": {
+    "@types/node": "^26.4.1",
+    "typescript": "^7.0.2"
+  },
   "license": "MIT",
   "private": true
 }
