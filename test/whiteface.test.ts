@@ -68,14 +68,16 @@ test('nobody holds a fresh role', () => {
 })
 
 // status carries the token and stop ends the session: those stay with c2c ctl.
-test('the whiteface gets the release, drop, outbox and mode commands but not status or stop', () => {
+test('the whiteface gets the release, drop, outbox, mode and roster commands but not status or stop', () => {
   for (const cmd of ['approve', 'deny', 'approve-next', 'deny-next', 'approve-all', 'deny-all', 'mode', 'list',
-    'outbox', 'cancel', 'cancel-all', 'bump']) {
+    'outbox', 'cancel', 'cancel-all', 'bump', 'who', 'trust', 'kick']) {
     assert.equal(WHITEFACE_COMMANDS.has(cmd), true, cmd)
   }
   // say is not refused so much as pointless here: a browser has the f2f lane
-  // itself, and c2c say exists for the host, who does not.
-  for (const cmd of ['status', 'stop', 'say', 'submit', 'key', 'hoink', 'name', 'refresh', 'f2f', 'scrollback']) {
+  // itself, and c2c say exists for the host, who does not. rotate mints the new
+  // secret and its reply is the only place the new link exists.
+  for (const cmd of ['status', 'stop', 'say', 'rotate', 'submit', 'key', 'hoink', 'name', 'refresh', 'f2f',
+    'scrollback']) {
     assert.equal(WHITEFACE_COMMANDS.has(cmd), false, cmd)
   }
 })

@@ -144,7 +144,7 @@ interface StatusReply extends SessionLinks {
   session: string
   mode: Mode
   outboxMode: OutboxMode
-  bozos: { id: string; name: string; via: string }[]
+  bozos: RosterEntry[]
   pending: PendingEntry[]
   outbox: OutboxEntry[]
   bigtop: { url: string; connected: boolean; last: BigtopStatus | null } | null

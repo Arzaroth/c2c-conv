@@ -24,6 +24,10 @@ const DEFAULT_SCROLLBACK = 5000
 // ringmaster: the greeting is not the place to ship a whole afternoon of chat.
 const F2F_GREETING = 50
 
+// A browser tells the room it is typing at most this often. The relay is
+// throttled here as well as there: a bozo is not obliged to behave.
+const TYPING_MS = 2000
+
 // Why a message is sitting in the outbox instead of going in, in words the
 // person who sent it can act on.
 export function holdText(reason: HoldReason): string {
@@ -62,6 +66,12 @@ export interface Bozo {
   name: string
   origin: string
   channel: Channel
+  since: number
+  // Connected is not the same as watching. A browser that is hidden or has been
+  // left alone says so, and the roster shows it, because a line typed into a
+  // lane nobody is reading looks exactly like one that was read.
+  idle: boolean
+  typingAt?: number
 }
 
 export class Ringmaster {
@@ -306,6 +316,34 @@ export class Ringmaster {
     }
   }
 
+  // Who is in the circus. mode is each bozo's own, which is the room default
+  // until the host trusts one of them personally. Everything here goes to
+  // everyone: via is a transport rather than an address, so the roster carries
+  // nothing about a bozo that the rest of the room may not see.
+  #roster(): RosterEntry[] {
+    return [...this.#bozos.values()].map((bozo) => ({
+      id: bozo.id,
+      name: bozo.name,
+      mode: this.#policy.modeFor(bozo.id),
+      trusted: this.#policy.trustedMode(bozo.id) !== null,
+      whiteface: this.#whiteface.holds(bozo),
+      idle: bozo.idle,
+      since: bozo.since,
+      via: bozo.origin,
+    }))
+  }
+
+  #sendRoster(): void {
+    this.#broadcastJson({ type: 'roster', mode: this.#policy.mode, bozos: this.#roster() })
+  }
+
+  // policy:mode says what THIS bozo may do. With trust being per bozo there is
+  // no single room-wide answer to broadcast, and the room default rides the
+  // roster instead.
+  #tellMode(bozo: Bozo): void {
+    bozo.channel.sendJson({ type: 'policy:mode', mode: this.#policy.modeFor(bozo.id) })
+  }
+
   // Names are what a bozo calls itself and two of them can be "bozo", so a name
   // that matches more than one is refused rather than guessed at. The id is
   // always unambiguous, and c2c ctl status prints it next to the name.
@@ -315,6 +353,18 @@ export class Ringmaster {
     const all = [...this.#bozos.values()]
     const byId = all.filter((bozo) => bozo.id.toLowerCase() === needle)
     return byId.length ? byId : all.filter((bozo) => bozo.name.toLowerCase() === needle)
+  }
+
+  // Every command that acts on one bozo takes the name a human would use, so
+  // the ambiguity is resolved once, here.
+  #pickBozo(who: unknown): { ok: true; bozo: Bozo } | { ok: false; error: string } {
+    const found = this.#findBozos(who)
+    if (!found.length) return { ok: false, error: `nobody here called "${who}"` }
+    if (found.length > 1) {
+      const ids = found.map((bozo) => bozo.id).join(', ')
+      return { ok: false, error: `${found.length} bozos called "${who}" - pick one by id: ${ids}` }
+    }
+    return { ok: true, bozo: found[0] }
   }
 
   #show(bozo: Bozo, text: string): void {
@@ -348,16 +398,27 @@ export class Ringmaster {
   }
 
   async #onGuest(channel: Channel): Promise<void> {
-    const bozo: Bozo = { id: channel.id, name: 'bozo', origin: channel.origin, channel }
+    const bozo: Bozo = {
+      id: channel.id,
+      name: 'bozo',
+      origin: channel.origin,
+      channel,
+      since: Date.now(),
+      idle: false,
+    }
     this.#bozos.set(channel.id, bozo)
 
     channel.on('text', (raw: string) => this.#onGuestMessage(bozo, raw))
     channel.on('close', () => {
       this.#bozos.delete(channel.id)
+      // Trust was for the person on the other end of THIS socket. Whoever comes
+      // back on the next one is in the gallery until the host says otherwise.
+      this.#policy.forget(bozo.id)
       if (this.#whiteface.release(bozo)) {
         this.#notifyHost('c2c: the whiteface left, the role is free again')
       }
       this.#writeStatusLine()
+      this.#sendRoster()
       this.#notifyHost(`c2c: ${bozo.name} left (${this.#bozos.size} connected)`)
     })
 
@@ -379,7 +440,7 @@ export class Ringmaster {
     const { cols, rows } = await tmux.paneSize(this.#session)
     bozo.channel.sendJson({
       type: 'hoink',
-      mode: this.#policy.mode,
+      mode: this.#policy.modeFor(bozo.id),
       state: this.#paneState,
       cols,
       rows,
@@ -400,6 +461,9 @@ export class Ringmaster {
     if (this.#history.length) {
       bozo.channel.sendJson({ type: 'transcript:history', entries: this.#history })
     }
+    // Everyone, including whoever just arrived: one code path, and the room
+    // finds out somebody is here at the same moment they do.
+    this.#sendRoster()
     this.#writeStatusLine()
     this.#notifyHost(`c2c: ${bozo.name} hoinked in via ${bozo.origin} (${this.#bozos.size} here)`)
   }
@@ -434,6 +498,30 @@ export class Ringmaster {
       bozo.name = msg.name.slice(0, 40).replace(/[^\w .-]/g, '') || 'bozo'
       bozo.channel.sendJson({ type: 'named', name: bozo.name })
       this.#writeStatusLine()
+      this.#sendRoster()
+      return
+    }
+
+    // Presence. Only a change is worth a roster, or thirty browsers ticking
+    // every twenty seconds would be thirty rosters a minute for nothing.
+    if (msg.type === 'here') {
+      const idle = Boolean(msg.idle)
+      if (bozo.idle !== idle) {
+        bozo.idle = idle
+        this.#sendRoster()
+      }
+      return
+    }
+
+    // Typing is relayed and then forgotten: no state is kept here, and the
+    // browsers that receive it time it out on their own.
+    if (msg.type === 'typing') {
+      const now = Date.now()
+      if (bozo.typingAt && now - bozo.typingAt < TYPING_MS) return
+      bozo.typingAt = now
+      for (const other of this.#bozos.values()) {
+        if (other !== bozo) other.channel.sendJson({ type: 'typing', bozo: bozo.id, name: bozo.name })
+      }
       return
     }
 
@@ -449,7 +537,8 @@ export class Ringmaster {
     // That is the whole feature: it is the one thing said in a shared session
     // that claude does not hear.
     if (msg.type === 'f2f') {
-      this.#say(bozo.name, msg.text)
+      bozo.typingAt = undefined
+      this.#say(bozo.name, msg.text, false, typeof msg.nonce === 'string' ? msg.nonce.slice(0, 64) : undefined)
       return
     }
 
@@ -462,6 +551,7 @@ export class Ringmaster {
       const result = this.#policy.submitKey({
         key: msg.key,
         bozo: bozo.name,
+        bozoId: bozo.id,
         whiteface: this.#whiteface.holds(bozo),
       })
       if (result.action === 'send') this.#pressKey(result.key)
@@ -470,7 +560,7 @@ export class Ringmaster {
     }
 
     if (msg.type === 'submit') {
-      const result = this.#policy.submit({ text: msg.text, bozo: bozo.name })
+      const result = this.#policy.submit({ text: msg.text, bozo: bozo.name, bozoId: bozo.id })
       if (result.action === 'send') {
         bozo.channel.sendJson({ type: 'accepted', text: result.text })
       } else if (result.action === 'queued') {
@@ -574,10 +664,10 @@ export class Ringmaster {
   }
 
   // Said between the clowns, never to the session.
-  #say(from: string, text: unknown, host = false): F2fMessage | null {
+  #say(from: string, text: unknown, host = false, nonce?: string): F2fMessage | null {
     const msg = this.#farce.say({ from, text, host })
     if (!msg) return null
-    this.#broadcastJson({ type: 'f2f', msg })
+    this.#broadcastJson({ type: 'f2f', msg, ...(nonce ? { nonce } : {}) })
     // The host at the terminal has no panel to read, so the lane arrives as a
     // tmux message. Their own lines are not echoed back at them.
     if (!host) this.#notifyHost(`f2f ${msg.from}: ${msg.text}`)
@@ -612,8 +702,33 @@ export class Ringmaster {
     if (event.type === 'queued') {
       this.#notifyHost(`c2c: ${event.bozo} wants to send #${event.id} - prefix+a to release`)
     }
+
+    // The two that are nobody else's business in the general case. A room
+    // default reaches every bozo the host has not singled out; trust reaches
+    // the one it is about. Both land as "here is what YOU may do", and the
+    // roster carries the rest of the picture.
     if (event.type === 'mode') {
-      this.#notifyHost(`c2c: mode is now ${event.mode}`)
+      this.#notifyHost(`c2c: the room is ${event.mode} by default now`)
+      for (const bozo of this.#bozos.values()) {
+        if (this.#policy.trustedMode(bozo.id) === null) this.#tellMode(bozo)
+      }
+      this.#sendRoster()
+      this.#writeStatusLine()
+      return
+    }
+    if (event.type === 'trust') {
+      const bozo = this.#bozos.get(event.bozo)
+      if (bozo) {
+        this.#tellMode(bozo)
+        this.#notifyHost(
+          event.mode
+            ? `c2c: ${bozo.name} is in ${event.mode} now, whatever the room does`
+            : `c2c: ${bozo.name} is back on the room default (${this.#policy.mode})`,
+        )
+      }
+      this.#sendRoster()
+      this.#writeStatusLine()
+      return
     }
     // What is waiting goes to the whiteface only. Another bozo's unreleased
     // message is not the rest of the gallery's business, especially one the
@@ -634,11 +749,18 @@ export class Ringmaster {
     const outbox = this.#outbox.list().length
     const bozos = this.#bozos.size
     const mode = this.#policy.mode === YOLO ? '#[fg=#ff2e4c,bold]YOLO' : '#[fg=#ffd93d]gallery'
+    // Whoever is in the ring against the room default is the thing the host
+    // most needs on screen: in a gallery it is the only person who can act.
+    const inRing = [...this.#bozos.values()]
+      .filter((bozo) => this.#policy.modeFor(bozo.id) === YOLO).length
 
     const parts = [
       `#[fg=#9a90b0]c2c ${mode}#[default]`,
       `#[fg=#9a90b0]${bozos} bozo${bozos === 1 ? '' : 's'}`,
     ]
+    if (inRing && this.#policy.mode !== YOLO) {
+      parts.push(`#[fg=#ff2e4c,bold]${inRing} in the ring`)
+    }
     if (pending) {
       parts.push(`#[fg=#ffd93d,bold]${pending} waiting#[default] #[fg=#9a90b0](prefix+a approve, prefix+d deny)`)
     }
@@ -708,7 +830,7 @@ export class Ringmaster {
           session: this.#session,
           mode: this.#policy.mode,
           outboxMode: this.#outbox.mode,
-          bozos: [...this.#bozos.values()].map((g) => ({ id: g.id, name: g.name, via: g.origin })),
+          bozos: this.#roster(),
           pending: this.#policy.list(),
           outbox: this.#outbox.list(),
           ...this.#links(),
@@ -760,17 +882,28 @@ export class Ringmaster {
         return said ? { ok: true, said } : { ok: false, error: 'nothing to say' }
       }
       case 'kick': {
-        const found = this.#findBozos(msg.who)
-        if (!found.length) return { ok: false, error: `nobody here called "${msg.who}"` }
-        if (found.length > 1) {
-          const ids = found.map((bozo) => bozo.id).join(', ')
-          return { ok: false, error: `${found.length} bozos called "${msg.who}" - kick one by id: ${ids}` }
-        }
-        const [bozo] = found
+        const found = this.#pickBozo(msg.who)
+        if (!found.ok) return found
+        const { bozo } = found
         this.#show(bozo, 'the host closed your connection')
         this.#notifyHost(`c2c: kicked ${bozo.name}`)
         return { ok: true, kicked: { id: bozo.id, name: bozo.name } }
       }
+      // Per bozo, so one person can be let into the ring without the other
+      // twenty-nine coming with them. "default" is how they come back off it.
+      case 'trust': {
+        const found = this.#pickBozo(msg.who)
+        if (!found.ok) return found
+        const { bozo } = found
+        if (msg.mode === 'default' || msg.mode === 'clear') {
+          this.#policy.untrust(bozo.id)
+          return { ok: true, trusted: { id: bozo.id, name: bozo.name, mode: null } }
+        }
+        const mode = this.#policy.trust(bozo.id, msg.mode)
+        return { ok: true, trusted: { id: bozo.id, name: bozo.name, mode } }
+      }
+      case 'who':
+        return { ok: true, mode: this.#policy.mode, bozos: this.#roster() }
       case 'rotate':
         return { ok: true, meta: this.#rotate() }
       case 'approve-all':
