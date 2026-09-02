@@ -41,6 +41,16 @@ interface OutboxEntry {
   reason?: HoldReason
 }
 
+// A line in the farce-to-farce lane. host marks the ones typed at the terminal
+// with c2c say rather than in a browser.
+interface F2fMessage {
+  id: number
+  from: string
+  text: string
+  at: number
+  host?: boolean
+}
+
 interface CursorPosition {
   x: number
   y: number
@@ -76,13 +86,14 @@ type PolicyEvent =
 // asking over its bozo socket. WHITEFACE_COMMANDS says which of these the
 // second is allowed.
 type ControlCommand =
-  | 'status' | 'list' | 'mode' | 'stop'
+  | 'status' | 'list' | 'mode' | 'stop' | 'say'
   | 'approve' | 'deny' | 'approve-next' | 'deny-next' | 'approve-all' | 'deny-all'
   | 'outbox' | 'cancel' | 'cancel-all' | 'bump'
 
 // status carries the token and stop ends the session: those two stay with
-// c2c ctl and are never reachable from a browser.
-type WhitefaceCommand = Exclude<ControlCommand, 'status' | 'stop'>
+// c2c ctl and are never reachable from a browser. say is the host's way into
+// the f2f lane from the terminal, and a browser already has the lane itself.
+type WhitefaceCommand = Exclude<ControlCommand, 'status' | 'stop' | 'say'>
 
 type ControlRequest =
   | {
@@ -90,6 +101,7 @@ type ControlRequest =
         | 'outbox' | 'cancel-all'
     }
   | { cmd: 'mode'; mode: string }
+  | { cmd: 'say'; text: string }
   | { cmd: 'approve' | 'deny' | 'cancel' | 'bump'; id: number | string }
 
 // The three links a browser might be handed. Spread into both the metadata
@@ -120,6 +132,7 @@ interface ActionReply {
   outbox?: OutboxEntry[]
   cancelled?: OutboxEntry | OutboxEntry[] | null
   bumped?: OutboxEntry | null
+  said?: F2fMessage
   stopping?: boolean
 }
 
@@ -150,6 +163,7 @@ type ServerMessage =
       pending?: PendingEntry[]
       outbox: OutboxEntry[]
       outboxMode: OutboxMode
+      f2f: F2fMessage[]
     }
   | { type: 'screen'; data: string; cursor: CursorPosition }
   | { type: 'state'; state: PaneState }
@@ -168,6 +182,7 @@ type ServerMessage =
   // fifty short strings at the very most, and a queue that disagrees with the
   // one the host is looking at is worse than the bytes are worth.
   | { type: 'outbox'; entries: OutboxEntry[]; mode: OutboxMode }
+  | { type: 'f2f'; msg: F2fMessage }
   | { type: 'notice'; text: string }
   | { type: 'bye'; text: string }
   | { type: 'transcript'; entry: TranscriptEntry }
@@ -184,6 +199,7 @@ type BozoMessage =
   | { type: 'refresh' }
   | { type: 'key'; key: string }
   | { type: 'submit'; text: string }
+  | { type: 'f2f'; text: string }
   // The whiteface half of the vocabulary, shaped like a control request minus
   // the cmd key, which the ringmaster fills in from the type.
   | { type: 'list' | 'approve-next' | 'deny-next' | 'approve-all' | 'deny-all' }

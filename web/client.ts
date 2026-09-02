@@ -29,24 +29,73 @@ const el = {
   history: pick<HTMLDivElement>('history'),
   historyList: pick<HTMLDivElement>('history-list'),
   historyToggle: pick<HTMLButtonElement>('history-toggle'),
+  f2f: pick<HTMLDivElement>('f2f'),
+  f2fScroll: pick<HTMLDivElement>('f2f-scroll'),
+  f2fList: pick<HTMLDivElement>('f2f-list'),
+  f2fForm: pick<HTMLFormElement>('f2f-form'),
+  f2fText: pick<HTMLInputElement>('f2f-text'),
+  f2fToggle: pick<HTMLButtonElement>('f2f-toggle'),
   outbox: pick<HTMLDivElement>('outbox'),
 }
 
 // Not "history": this is a plain script, so a top-level binding by that name
 // would be shadowing window.history.
 const turns: TranscriptEntry[] = []
-let historyOpen = false
-let unseen = 0
+const lane: F2fMessage[] = []
 
-function renderHistoryToggle(): void {
-  el.historyToggle.classList.toggle('on', historyOpen)
-  el.historyToggle.textContent = 'history'
-  if (!historyOpen && unseen) {
-    const badge = document.createElement('span')
-    badge.className = 'count'
-    badge.textContent = unseen > 99 ? '99+' : String(unseen)
-    el.historyToggle.appendChild(badge)
+// Three surfaces, one at a time, and the live mirror is what is underneath the
+// other two.
+type Panel = 'history' | 'f2f'
+type View = 'live' | Panel
+
+const PANELS: { name: Panel; label: string; tab: HTMLButtonElement; panel: HTMLElement }[] = [
+  { name: 'f2f', label: 'f2f', tab: el.f2fToggle, panel: el.f2f },
+  { name: 'history', label: 'history', tab: el.historyToggle, panel: el.history },
+]
+
+let showing: View = 'live'
+const unseen: Record<Panel, number> = { history: 0, f2f: 0 }
+
+function renderTabs(): void {
+  for (const { name, label, tab } of PANELS) {
+    tab.classList.toggle('on', showing === name)
+    tab.textContent = label
+    const count = unseen[name]
+    if (showing !== name && count) {
+      const badge = document.createElement('span')
+      badge.className = 'count'
+      badge.textContent = count > 99 ? '99+' : String(count)
+      tab.appendChild(badge)
+    }
   }
+}
+
+function setView(next: View): void {
+  showing = next
+  el.screen.hidden = next !== 'live'
+  for (const { name, panel } of PANELS) panel.hidden = name !== next
+
+  if (next === 'live') rescale()
+  if (next === 'history') {
+    unseen.history = 0
+    renderHistory()
+    el.history.scrollTop = el.history.scrollHeight
+  }
+  if (next === 'f2f') {
+    unseen.f2f = 0
+    renderLane()
+    el.f2fScroll.scrollTop = el.f2fScroll.scrollHeight
+    el.f2fText.focus()
+  }
+  renderTabs()
+}
+
+function clock(at: number): string {
+  return new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+for (const { name, tab } of PANELS) {
+  tab.addEventListener('click', () => setView(showing === name ? 'live' : name))
 }
 
 function turnElement(entry: TranscriptEntry): HTMLDivElement {
@@ -82,8 +131,9 @@ function turnElement(entry: TranscriptEntry): HTMLDivElement {
 
 function appendTurn(entry: TranscriptEntry): void {
   const atBottom = el.history.scrollTop + el.history.clientHeight >= el.history.scrollHeight - 40
+  el.historyList.querySelector('.history-empty')?.remove()
   el.historyList.appendChild(turnElement(entry))
-  if (historyOpen && atBottom) el.history.scrollTop = el.history.scrollHeight
+  if (showing === 'history' && atBottom) el.history.scrollTop = el.history.scrollHeight
 }
 
 function renderHistory(): void {
@@ -98,22 +148,57 @@ function renderHistory(): void {
   for (const entry of turns) el.historyList.appendChild(turnElement(entry))
 }
 
-el.mode.addEventListener('click', () => {
-  if (whiteface) send({ type: 'mode', mode: 'toggle' })
+/* ── farce-to-farce ───────────────────────────────────────────────────────── */
+
+function lineElement(msg: F2fMessage): HTMLDivElement {
+  const row = document.createElement('div')
+  row.className = `line${msg.host ? ' host' : msg.from === bozoName ? ' mine' : ''}`
+
+  const from = document.createElement('span')
+  from.className = 'from'
+  from.textContent = msg.from
+
+  const said = document.createElement('span')
+  said.className = 'said'
+  said.textContent = msg.text
+
+  const at = document.createElement('span')
+  at.className = 'at'
+  at.textContent = clock(msg.at)
+
+  row.append(from, said, at)
+  return row
+}
+
+function appendLine(msg: F2fMessage): void {
+  const atBottom = el.f2fScroll.scrollTop + el.f2fScroll.clientHeight >= el.f2fScroll.scrollHeight - 40
+  el.f2fList.querySelector('.lane-empty')?.remove()
+  el.f2fList.appendChild(lineElement(msg))
+  if (atBottom) el.f2fScroll.scrollTop = el.f2fScroll.scrollHeight
+}
+
+function renderLane(): void {
+  el.f2fList.replaceChildren()
+  if (!lane.length) {
+    const empty = document.createElement('div')
+    empty.className = 'lane-empty'
+    empty.textContent = 'Nobody has said anything yet. Claude will not hear any of it.'
+    el.f2fList.appendChild(empty)
+    return
+  }
+  for (const msg of lane) el.f2fList.appendChild(lineElement(msg))
+}
+
+el.f2fForm.addEventListener('submit', (event) => {
+  event.preventDefault()
+  const text = el.f2fText.value.trim()
+  if (!text) return
+  send({ type: 'f2f', text })
+  el.f2fText.value = ''
 })
 
-el.historyToggle.addEventListener('click', () => {
-  historyOpen = !historyOpen
-  el.history.hidden = !historyOpen
-  el.screen.hidden = historyOpen
-  if (historyOpen) {
-    unseen = 0
-    renderHistory()
-    el.history.scrollTop = el.history.scrollHeight
-  } else {
-    rescale()
-  }
-  renderHistoryToggle()
+el.mode.addEventListener('click', () => {
+  if (whiteface) send({ type: 'mode', mode: 'toggle' })
 })
 
 let paneState: PaneState = 'unknown'
@@ -182,23 +267,24 @@ function rescale(): void {
 }
 
 function fit(): void {
-  const view = el.screen.querySelector<HTMLElement>('.xterm')
+  const frame = el.screen.querySelector<HTMLElement>('.xterm')
   const grid = el.screen.querySelector<HTMLElement>('.xterm-screen')
-  if (!view || !grid) return
+  if (!frame || !grid) return
 
   // Bail before touching the transform. Clearing it first and then giving up on
   // an unmeasurable container leaves the terminal permanently unscaled, which
-  // is what happens every time a redraw arrives while history is open.
+  // is what happens every time a redraw arrives while another panel is open. A
+  // hidden panel measures zero, so this covers both.
   const availableWidth = el.screen.clientWidth - 16
   const availableHeight = el.screen.clientHeight - 12
-  if (el.screen.hidden || availableWidth <= 0 || availableHeight <= 0) return
+  if (availableWidth <= 0 || availableHeight <= 0) return
 
-  view.style.transform = 'none'
+  frame.style.transform = 'none'
   // Pin the element to the character grid: left to itself it stretches to the
   // container, which both mispositions the centring and strands the scrollbar
   // out in the empty gap.
-  view.style.width = `${grid.offsetWidth}px`
-  view.style.height = `${grid.offsetHeight}px`
+  frame.style.width = `${grid.offsetWidth}px`
+  frame.style.height = `${grid.offsetHeight}px`
 
   const width = grid.offsetWidth
   const height = grid.offsetHeight
@@ -208,8 +294,8 @@ function fit(): void {
   // letterboxes. Scaling about the centre lets the flex parent centre the
   // leftover evenly instead of stranding it all on the right.
   const scale = Math.min(availableWidth / width, availableHeight / height)
-  view.style.transformOrigin = 'center center'
-  view.style.transform = `scale(${scale})`
+  frame.style.transformOrigin = 'center center'
+  frame.style.transform = `scale(${scale})`
 }
 
 addEventListener('resize', rescale)
@@ -394,6 +480,11 @@ function handle(msg: ServerMessage): void {
       outbox = msg.outbox ?? []
       outboxMode = msg.outboxMode ?? 'drain'
       renderOutbox()
+      lane.length = 0
+      lane.push(...(msg.f2f ?? []))
+      if (showing === 'f2f') renderLane()
+      else unseen.f2f = lane.length
+      renderTabs()
       setMode(msg.mode)
       if (whiteface) {
         el.hint.innerHTML = 'You are the <b>whiteface</b>. You run the ring: release, drop, switch mode.'
@@ -455,6 +546,14 @@ function handle(msg: ServerMessage): void {
       outboxMode = msg.mode
       renderOutbox()
       break
+    case 'f2f':
+      lane.push(msg.msg)
+      if (showing === 'f2f') appendLine(msg.msg)
+      else {
+        unseen.f2f++
+        renderTabs()
+      }
+      break
     case 'accepted':
       el.hint.innerHTML = outboxMode === 'through'
         ? 'In. If the session is working, claude queues it.'
@@ -478,15 +577,15 @@ function handle(msg: ServerMessage): void {
     case 'transcript:history':
       turns.length = 0
       turns.push(...msg.entries)
-      if (historyOpen) renderHistory()
-      else unseen = turns.length
-      renderHistoryToggle()
+      if (showing === 'history') renderHistory()
+      else unseen.history = turns.length
+      renderTabs()
       break
     case 'transcript':
       turns.push(msg.entry)
-      if (historyOpen) appendTurn(msg.entry)
-      else unseen++
-      renderHistoryToggle()
+      if (showing === 'history') appendTurn(msg.entry)
+      else unseen.history++
+      renderTabs()
       break
   }
 }
@@ -520,7 +619,7 @@ el.who.addEventListener('change', () => {
   announce()
 })
 
-renderHistoryToggle()
+renderTabs()
 setMode('gallery')
 setLink(false)
 connect()

@@ -211,6 +211,9 @@ async function cmdHost({ opts, passthrough }: { opts: Options; passthrough: stri
   console.log('    prefix + y  toggle gallery / yolo')
   console.log('  the status bar shows mode, bozos, what is waiting and what is going in.')
   console.log('')
+  console.log('  the clowns can talk to each other without claude hearing it:')
+  console.log(`    c2c say "..."   post to the f2f lane; theirs arrive as tmux messages`)
+  console.log('')
 
   if (opts.mode === YOLO && !opts.attach) {
     console.log('warning: headless and in yolo. Nobody is watching the pane, and any bozo')
@@ -444,7 +447,7 @@ function attach(session: string): Promise<void> {
 
 const CTL_USAGE =
   'usage: c2c ctl <status|list|mode gallery|mode yolo|approve ID|deny ID|approve-all|deny-all' +
-  '|outbox|cancel ID|cancel-all|bump ID>'
+  '|outbox|cancel ID|cancel-all|bump ID|say TEXT>'
 
 async function cmdCtl({ opts, rest }: { opts: Options; rest: string[] }): Promise<void> {
   const [sub, ...args] = rest
@@ -472,6 +475,8 @@ function buildControlMessage(sub: string | undefined, args: string[]): ControlRe
       return { cmd: sub }
     case 'mode':
       return { cmd: 'mode', mode: MODE_ALIASES[args[0]] ?? args[0] }
+    case 'say':
+      return { cmd: 'say', text: args.join(' ') }
     case 'approve':
     case 'deny':
     case 'cancel':
@@ -519,6 +524,22 @@ function printStatus(reply: ControlReply): void {
   }
 }
 
+// The host's way into the f2f lane. They have no browser panel to type in, and
+// a bozo's line arrives in the pane as a tmux message, so this is the reply.
+async function cmdSay({ opts, rest }: { opts: Options; rest: string[] }): Promise<void> {
+  const text = rest.join(' ').trim()
+  if (!text) {
+    console.error('usage: c2c say <text>')
+    process.exit(1)
+  }
+  const reply = await control(opts.session, { cmd: 'say', text })
+  if (!reply.ok) {
+    console.error(reply.error)
+    process.exit(1)
+  }
+  console.log('said')
+}
+
 async function cmdStop({ opts }: { opts: Options }): Promise<void> {
   try {
     await control(opts.session, { cmd: 'stop' })
@@ -536,8 +557,9 @@ usage:
            [--bigtop wss://HOST] [--room NAME] [--token SECRET] [-- <claude args>]
   c2c attach [-s NAME]
   c2c invite [-s NAME]
+  c2c say <text>   post a line to the f2f lane, which claude never sees
   c2c ctl <status|list|mode gallery|mode yolo|approve ID|deny ID|approve-all|deny-all
-           |outbox|cancel ID|cancel-all|bump ID>
+           |outbox|cancel ID|cancel-all|bump ID|say TEXT>
   c2c stop [-s NAME]
   c2c version | --version
   c2c bigtop [-p PORT] [--bind ADDR]
@@ -580,6 +602,9 @@ try {
       break
     case 'invite':
       await cmdInvite({ opts })
+      break
+    case 'say':
+      await cmdSay({ opts, rest: rest.slice(1) })
       break
     // mcp stays as an alias: it is the term anyone will actually search for.
     case 'zavatta':

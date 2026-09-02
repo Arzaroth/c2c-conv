@@ -223,6 +223,85 @@
     padding: 18px 0 26px;
   }
   #history[hidden] { display: none; }
+
+  /* farce-to-farce: the lane between the clowns. clown to clown is what claude
+     hears, and this is deliberately not that, so it never touches the pane. */
+  #f2f {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: #0b0910;
+  }
+  #f2f[hidden] { display: none; }
+  #f2f-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 18px 0;
+  }
+  .lane-inner {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 0 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+  .line { display: flex; gap: 10px; align-items: baseline; line-height: 1.5; }
+  .line .from {
+    flex: none;
+    min-width: 96px;
+    text-align: right;
+    font-weight: 700;
+    color: var(--wig-6);
+    overflow-wrap: anywhere;
+  }
+  .line.mine .from { color: var(--wig-4); }
+  .line.host .from { color: var(--nose); }
+  .line .said { flex: 1; overflow-wrap: anywhere; white-space: pre-wrap; }
+  .line .at { flex: none; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .lane-empty { color: var(--muted); text-align: center; padding: 40px 0; }
+
+  #f2f-form {
+    display: flex;
+    gap: 10px;
+    max-width: 900px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 12px 20px 6px;
+  }
+  #f2f-form input {
+    flex: 1;
+    min-width: 0;
+    padding: 10px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+  }
+  #f2f-form input:focus { outline: none; border-color: var(--wig-6); }
+  #f2f-form button {
+    padding: 10px 20px;
+    border-radius: 999px;
+    border: none;
+    background: var(--wig-6);
+    color: #150a26;
+    font: inherit;
+    font-weight: 800;
+    cursor: pointer;
+  }
+  #f2f-form button:hover { filter: brightness(1.12); }
+  .lane-note {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 0 20px 16px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .lane-note b { color: var(--wig-6); font-weight: 700; }
+
   .history-inner {
     max-width: 900px;
     margin: 0 auto;
@@ -383,6 +462,7 @@
     <div class="badge" id="mode"><span class="dot"></span><span id="mode-text">connecting</span></div>
     <div class="badge link down" id="link">offline</div>
     <div class="spacer"></div>
+    <button type="button" id="f2f-toggle" class="badge tab">f2f</button>
     <button type="button" id="history-toggle" class="badge tab">history</button>
     <input type="text" id="who" class="who" maxlength="40" placeholder="your name" aria-label="Your name">
   </header>
@@ -391,6 +471,19 @@
 
   <div id="history" hidden>
     <div class="history-inner" id="history-list"></div>
+  </div>
+
+  <div id="f2f" hidden>
+    <div id="f2f-scroll"><div class="lane-inner" id="f2f-list"></div></div>
+    <form id="f2f-form">
+      <input type="text" id="f2f-text" maxlength="2000" autocomplete="off"
+             placeholder="say something to the clowns..." aria-label="Say something to the clowns">
+      <button type="submit">Say</button>
+    </form>
+    <div class="lane-note">
+      <b>farce-to-farce.</b> clown to clown is what claude hears. This is not that:
+      nothing said here is sent, queued or transcribed.
+    </div>
   </div>
 
   <footer class="dots">

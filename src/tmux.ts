@@ -211,9 +211,11 @@ export async function submit(name: string, text: string): Promise<void> {
   await sendKey(name, 'Enter')
 }
 
+// display-message expands #{...} formats, and most of what gets notified is a
+// bozo's name or a bozo's words. A doubled hash is the literal one.
 export async function notify(name: string, message: string): Promise<void> {
   try {
-    await tmux(['display-message', '-t', name, message])
+    await tmux(['display-message', '-t', name, message.replace(/#/g, '##')])
   } catch {}
 }
 

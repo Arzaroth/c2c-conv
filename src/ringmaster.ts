@@ -8,6 +8,7 @@ import { TranscriptStream } from './transcript.js'
 import { Tunnel } from './tunnel.js'
 import { Policy, GALLERY, YOLO } from './policy.js'
 import { Outbox, type OutboxEvent, type SendOutcome } from './outbox.js'
+import { Farce } from './f2f.js'
 import { Whiteface, isWhitefaceCommand } from './whiteface.js'
 import { LocalTransport } from './transport/local.js'
 import { BigtopTransport } from './transport/bigtop.js'
@@ -15,6 +16,10 @@ import { controlSocket, ensureStateDir, metaFile, paneFile, statusFile } from '.
 
 const MAX_PANE_BYTES = Number(process.env.C2C_MAX_PANE_BYTES) || 8 * 1024 * 1024
 const MAX_HISTORY = 500
+
+// How much of the f2f lane a bozo gets on arrival. The rest stays on the
+// ringmaster: the greeting is not the place to ship a whole afternoon of chat.
+const F2F_GREETING = 50
 
 // Why a message is sitting in the outbox instead of going in, in words the
 // person who sent it can act on.
@@ -61,6 +66,7 @@ export class Ringmaster {
   #token: string
   #policy = new Policy()
   #outbox: Outbox
+  #farce = new Farce()
   #bozos = new Map<string, Bozo>()
   #transports: Transport[] = []
   #local: LocalTransport
@@ -341,6 +347,7 @@ export class Ringmaster {
       // be able to see the queue. What is still held at the gate is not.
       outbox: this.#outbox.list(),
       outboxMode: this.#outbox.mode,
+      f2f: this.#farce.history(F2F_GREETING),
     })
     if (claim && !claim.ok) {
       bozo.channel.sendJson({ type: 'whiteface:refused', reason: claim.reason })
@@ -391,6 +398,14 @@ export class Ringmaster {
     // be able to ask for the current screen.
     if (msg.type === 'refresh') {
       this.#sendScreen(bozo.channel)
+      return
+    }
+
+    // Nothing in the f2f lane goes near the pane, the policy or the transcript.
+    // That is the whole feature: it is the one thing said in a shared session
+    // that claude does not hear.
+    if (msg.type === 'f2f') {
+      this.#say(bozo.name, msg.text)
       return
     }
 
@@ -507,6 +522,17 @@ export class Ringmaster {
       )
       this.#broadcastJson({ type: 'policy:held', state: event.reason, text: event.entry.text })
     }
+  }
+
+  // Said between the clowns, never to the session.
+  #say(from: string, text: unknown, host = false): F2fMessage | null {
+    const msg = this.#farce.say({ from, text, host })
+    if (!msg) return null
+    this.#broadcastJson({ type: 'f2f', msg })
+    // The host at the terminal has no panel to read, so the lane arrives as a
+    // tmux message. Their own lines are not echoed back at them.
+    if (!host) this.#notifyHost(`f2f ${msg.from}: ${msg.text}`)
+    return msg
   }
 
   #onPolicyEvent(event: PolicyEvent): void {
@@ -667,6 +693,10 @@ export class Ringmaster {
       case 'bump': {
         const result = this.#outbox.bump(outboxId(msg.id))
         return result.ok ? { ok: true, bumped: result.entry } : { ok: false, error: result.error }
+      }
+      case 'say': {
+        const said = this.#say('host', msg.text, true)
+        return said ? { ok: true, said } : { ok: false, error: 'nothing to say' }
       }
       case 'approve-all':
         return { ok: true, approved: this.#policy.approveAll() }

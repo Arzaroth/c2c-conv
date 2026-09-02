@@ -24,6 +24,7 @@ export class BozoLink extends EventEmitter {
   history: TranscriptEntry[] = []
   outbox: OutboxEntry[] = []
   outboxMode: OutboxMode = 'drain'
+  lane: F2fMessage[] = []
   connected = false
 
   constructor({ url, name = 'zavatta' }: { url: string; name?: string }) {
@@ -79,11 +80,13 @@ export class BozoLink extends EventEmitter {
       this.state = msg.state ?? 'unknown'
       this.outbox = msg.outbox ?? []
       this.outboxMode = msg.outboxMode ?? 'drain'
+      this.lane = msg.f2f ?? []
     }
     if (msg.type === 'outbox') {
       this.outbox = msg.entries
       this.outboxMode = msg.mode
     }
+    if (msg.type === 'f2f') this.lane.push(msg.msg)
     if (msg.type === 'policy:mode') this.mode = msg.mode
     if (msg.type === 'state') this.state = msg.state
     if (msg.type === 'screen') this.screen = stripAnsi(msg.data).replace(/[ \t]+$/gm, '')
@@ -124,6 +127,12 @@ export class BozoLink extends EventEmitter {
     const settled = this.#await(['accepted', 'pending', 'rejected', 'policy:held'])
     this.#send({ type: 'submit', text })
     return settled
+  }
+
+  // Nothing here reaches the session, so there is no gate to pass and nothing
+  // to wait for.
+  say(text: string): void {
+    this.#send({ type: 'f2f', text })
   }
 
   async press(key: string): Promise<ServerMessage | { type: 'sent'; key: string }> {
@@ -168,6 +177,25 @@ const TOOLS = [
       type: 'object',
       properties: { text: { type: 'string', description: 'What to say to the session' } },
       required: ['text'],
+    },
+  },
+  {
+    name: 'c2c_say',
+    description:
+      'Say something to the other clowns in the f2f lane. This never reaches the shared session: it is the side channel humans use to talk about the session while it runs. Use it to flag something rather than typing into the session itself.',
+    inputSchema: {
+      type: 'object',
+      properties: { text: { type: 'string', description: 'What to say to the other clowns' } },
+      required: ['text'],
+    },
+  },
+  {
+    name: 'c2c_f2f',
+    description:
+      'What the clowns have said to each other in the f2f lane. None of it was seen by the shared session, so it is the only place a "wait, do not run that" can be.',
+    inputSchema: {
+      type: 'object',
+      properties: { limit: { type: 'number', description: 'Most recent N lines (default 20)' } },
     },
   },
   {
@@ -300,6 +328,18 @@ export class McpServer {
       ].join('\n')
     }
 
+    if (name === 'c2c_say') {
+      if (!args.text) throw new Error('text is required')
+      link.say(args.text)
+      return 'Said to the other clowns. The session did not see it.'
+    }
+
+    if (name === 'c2c_f2f') {
+      const limit = Number(args.limit) > 0 ? Number(args.limit) : 20
+      const said = link.lane.slice(-limit)
+      if (!said.length) return '(nobody has said anything in the f2f lane)'
+      return said.map((msg) => `${msg.from}${msg.host ? ' (host)' : ''}: ${msg.text}`).join('\n')
+    }
 
     if (name === 'c2c_send') {
       if (!args.text) throw new Error('text is required')
