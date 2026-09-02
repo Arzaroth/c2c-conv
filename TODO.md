@@ -1,7 +1,7 @@
 # TODO
 
 What is left, and why each thing is worth doing. Grounded in the code as it
-stands at v0.2.0: the architecture is finished for what it does, so almost
+stands at v0.3.0: the architecture is finished for what it does, so almost
 nothing here is plumbing. What is missing is that a bozo is still a thin
 participant.
 
