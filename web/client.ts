@@ -3,28 +3,38 @@ const token = params.get('t') || ''
 // Presenting this makes you the whiteface: the clown who runs the ring.
 const whitefaceToken = params.get('w') || ''
 
-const el = {
-  mode: document.getElementById('mode'),
-  modeText: document.getElementById('mode-text'),
-  link: document.getElementById('link'),
-  who: document.getElementById('who'),
-  pending: document.getElementById('pending'),
-  form: document.getElementById('composer'),
-  text: document.getElementById('text'),
-  send: document.getElementById('send'),
-  hint: document.getElementById('hint'),
-  screen: document.getElementById('screen'),
-  keypad: document.getElementById('keypad'),
-  history: document.getElementById('history'),
-  historyList: document.getElementById('history-list'),
-  historyToggle: document.getElementById('history-toggle'),
+// index.html is the only place these ids exist, so a missing one is a broken
+// build rather than something to render around.
+function pick<T extends HTMLElement>(id: string): T {
+  const found = document.getElementById(id)
+  if (!found) throw new Error(`c2c: #${id} is missing from the page`)
+  return found as T
 }
 
-const history = []
+const el = {
+  mode: pick<HTMLDivElement>('mode'),
+  modeText: pick<HTMLSpanElement>('mode-text'),
+  link: pick<HTMLDivElement>('link'),
+  who: pick<HTMLInputElement>('who'),
+  pending: pick<HTMLDivElement>('pending'),
+  form: pick<HTMLFormElement>('composer'),
+  text: pick<HTMLInputElement>('text'),
+  send: pick<HTMLButtonElement>('send'),
+  hint: pick<HTMLDivElement>('hint'),
+  screen: pick<HTMLDivElement>('screen'),
+  keypad: pick<HTMLDivElement>('keypad'),
+  history: pick<HTMLDivElement>('history'),
+  historyList: pick<HTMLDivElement>('history-list'),
+  historyToggle: pick<HTMLButtonElement>('history-toggle'),
+}
+
+// Not "history": this is a plain script, so a top-level binding by that name
+// would be shadowing window.history.
+const turns: TranscriptEntry[] = []
 let historyOpen = false
 let unseen = 0
 
-function renderHistoryToggle() {
+function renderHistoryToggle(): void {
   el.historyToggle.classList.toggle('on', historyOpen)
   el.historyToggle.textContent = 'history'
   if (!historyOpen && unseen) {
@@ -35,7 +45,7 @@ function renderHistoryToggle() {
   }
 }
 
-function turnElement(entry) {
+function turnElement(entry: TranscriptEntry): HTMLDivElement {
   const row = document.createElement('div')
   row.className = `turn ${entry.role}`
 
@@ -66,22 +76,22 @@ function turnElement(entry) {
   return row
 }
 
-function appendTurn(entry) {
+function appendTurn(entry: TranscriptEntry): void {
   const atBottom = el.history.scrollTop + el.history.clientHeight >= el.history.scrollHeight - 40
   el.historyList.appendChild(turnElement(entry))
   if (historyOpen && atBottom) el.history.scrollTop = el.history.scrollHeight
 }
 
-function renderHistory() {
+function renderHistory(): void {
   el.historyList.replaceChildren()
-  if (!history.length) {
+  if (!turns.length) {
     const empty = document.createElement('div')
     empty.className = 'history-empty'
     empty.textContent = 'Nothing yet. The conversation shows up here as it happens.'
     el.historyList.appendChild(empty)
     return
   }
-  for (const entry of history) el.historyList.appendChild(turnElement(entry))
+  for (const entry of turns) el.historyList.appendChild(turnElement(entry))
 }
 
 el.mode.addEventListener('click', () => {
@@ -102,19 +112,22 @@ el.historyToggle.addEventListener('click', () => {
   renderHistoryToggle()
 })
 
-let paneState = 'unknown'
+let paneState: PaneState = 'unknown'
 
-function refreshKeypad() {
+function refreshKeypad(): void {
   el.keypad.hidden = paneState !== 'dialog'
   const canPress = mode === 'yolo' || whiteface
   for (const button of el.keypad.querySelectorAll('button')) button.disabled = !canPress
-  el.keypad.querySelector('.keypad-label').textContent = canPress
-    ? '🤡 the session is asking'
-    : '🤡 the session is asking - only the host can answer'
+  const label = el.keypad.querySelector('.keypad-label')
+  if (label) {
+    label.textContent = canPress
+      ? '🤡 the session is asking'
+      : '🤡 the session is asking - only the host can answer'
+  }
 }
 
 el.keypad.addEventListener('click', (event) => {
-  const key = event.target.dataset?.key
+  const key = (event.target as HTMLElement | null)?.dataset?.key
   if (key) send({ type: 'key', key })
 })
 
@@ -148,7 +161,7 @@ let pendingFit = false
 // requestAnimationFrame does not fire in a background tab, so using it alone to
 // release the coalescing flag latches it on forever and every later fit is
 // swallowed. The timer is the fallback that still runs when hidden.
-function rescale() {
+function rescale(): void {
   if (pendingFit) return
   pendingFit = true
 
@@ -164,9 +177,9 @@ function rescale() {
   setTimeout(run, 60)
 }
 
-function fit() {
-  const view = el.screen.querySelector('.xterm')
-  const grid = el.screen.querySelector('.xterm-screen')
+function fit(): void {
+  const view = el.screen.querySelector<HTMLElement>('.xterm')
+  const grid = el.screen.querySelector<HTMLElement>('.xterm-screen')
   if (!view || !grid) return
 
   // Bail before touching the transform. Clearing it first and then giving up on
@@ -197,14 +210,14 @@ function fit() {
 
 addEventListener('resize', rescale)
 
-const pending = new Map()
-let mode = 'gallery'
+const pending = new Map<number, { id: number; text: string; bozo?: string }>()
+let mode: Mode = 'gallery'
 let whiteface = false
-let socket = null
+let socket: WebSocket | null = null
 let retry = 500
 let ended = false
 
-function setMode(next) {
+function setMode(next: Mode): void {
   mode = next
   el.mode.className = `badge ${next}`
   el.modeText.textContent = next === 'yolo' ? 'YOLO' : 'GALLERY'
@@ -214,17 +227,17 @@ function setMode(next) {
   refreshKeypad()
 }
 
-function send(payload) {
+function send(payload: BozoMessage): void {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload))
 }
 
-function setLink(up) {
+function setLink(up: boolean): void {
   el.link.textContent = up ? 'live' : 'offline'
   el.link.className = `badge link${up ? '' : ' down'}`
   el.send.disabled = !up
 }
 
-function renderPending() {
+function renderPending(): void {
   el.pending.replaceChildren()
   for (const entry of pending.values()) {
     const row = document.createElement('div')
@@ -261,7 +274,7 @@ function renderPending() {
   }
 }
 
-function endpoint() {
+function endpoint(): string {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
   const room = location.pathname.startsWith('/r/') ? decodeURIComponent(location.pathname.slice(3)) : null
   const query = room
@@ -270,7 +283,7 @@ function endpoint() {
   return `${proto}://${location.host}/${room ? 'bozo' : ''}?${query}`
 }
 
-function connect() {
+function connect(): void {
   socket = new WebSocket(endpoint())
   socket.binaryType = 'arraybuffer'
 
@@ -288,16 +301,16 @@ function connect() {
     retry = Math.min(retry * 2, 8000)
   }
 
-  socket.onmessage = (event) => {
+  socket.onmessage = (event: MessageEvent) => {
     if (event.data instanceof ArrayBuffer) {
       term.write(new Uint8Array(event.data))
       return
     }
-    handle(JSON.parse(event.data))
+    handle(JSON.parse(event.data) as ServerMessage)
   }
 }
 
-function handle(msg) {
+function handle(msg: ServerMessage): void {
   switch (msg.type) {
     case 'hoink':
       paneState = msg.state ?? 'unknown'
@@ -380,14 +393,14 @@ function handle(msg) {
       term.write(`\r\n\x1b[38;5;246m[c2c] ${msg.text}\x1b[39m\r\n`)
       break
     case 'transcript:history':
-      history.length = 0
-      history.push(...msg.entries)
+      turns.length = 0
+      turns.push(...msg.entries)
       if (historyOpen) renderHistory()
-      else unseen = history.length
+      else unseen = turns.length
       renderHistoryToggle()
       break
     case 'transcript':
-      history.push(msg.entry)
+      turns.push(msg.entry)
       if (historyOpen) appendTurn(msg.entry)
       else unseen++
       renderHistoryToggle()
@@ -403,23 +416,24 @@ el.form.addEventListener('submit', (event) => {
   el.text.value = ''
 })
 
-let name = localStorage.getItem('c2c-name') || 'bozo'
-el.who.value = name
+// Not "name" either: window.name is a string that is already there.
+let bozoName = localStorage.getItem('c2c-name') || 'bozo'
+el.who.value = bozoName
 
 // HOINK is the greeting: the bozo announces itself and the ringmaster hoinks
 // back with the mode, the pane size and the current screen.
-function hoink() {
-  send({ type: 'hoink', name, whiteface: whitefaceToken || undefined })
+function hoink(): void {
+  send({ type: 'hoink', name: bozoName, whiteface: whitefaceToken || undefined })
 }
 
-function announce() {
-  send({ type: 'name', name })
+function announce(): void {
+  send({ type: 'name', name: bozoName })
 }
 
 el.who.addEventListener('change', () => {
-  name = el.who.value.trim() || 'bozo'
-  el.who.value = name
-  localStorage.setItem('c2c-name', name)
+  bozoName = el.who.value.trim() || 'bozo'
+  el.who.value = bozoName
+  localStorage.setItem('c2c-name', bozoName)
   announce()
 })
 

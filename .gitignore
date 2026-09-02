@@ -1,5 +1,7 @@
 node_modules/
 dist/
 *.tsbuildinfo
+# Generated from web/client.ts by the web build.
+web/client.js
 *.log
 .DS_Store
