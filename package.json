@@ -1,6 +1,6 @@
 {
   "name": "c2c-conv",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Share one Claude Code session with a second person, live",
   "type": "module",
   "bin": {

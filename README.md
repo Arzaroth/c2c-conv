@@ -49,7 +49,7 @@ the ringmaster serves to a browser. Both are gitignored.
 ```sh
 npm install                        # typescript and @types/node, dev only
 mise trust && mise run install     # builds, then symlinks ~/.local/bin/c2c
-c2c --version                      # 0.1.0 (38c6eba), and which checkout it points at
+c2c --version                      # 0.2.0 (f893bae), and which checkout it points at
 ```
 
 `mise tasks` lists the rest: `build`, `test`, `check`, `host`, `local`,
