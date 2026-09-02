@@ -24,6 +24,9 @@ the part rather than because it is on theme:
   is. `broker` said "intermediary" but not "meeting place".
 - **ringmaster** runs one session: it holds the mode and decides what reaches
   the ring. `relay` undersold it, since it arbitrates rather than forwards.
+- **the circus** is the roster: who is in the tent, what each of them may do,
+  and whether anyone is still watching. It is what "room" would have been called
+  by anyone else.
 - **gallery** and **ring** are the two modes. The gallery is the cheap seats:
   watching and heckling, no power. The ring is where the act happens, and a
   bozo there acts as the host. `yolo` shouted the danger, so the docs have to
@@ -58,8 +61,11 @@ rather than once per bozo.
 
 **Policy** (`src/policy.ts`)
 The mode ladder. `gallery` (default) queues bozo submissions for host
-approval; `ring` clears them immediately. Mode lives only in the ringmaster and is
-only mutable through the host's control socket, so a bozo can never self-promote.
+approval; `ring` clears them immediately. It holds a room default plus a per-bozo
+override keyed by connection id, so `modeFor(bozo)` rather than a single mode is
+what every gate asks. Both live only in the ringmaster and are only mutable
+through the host's control socket or the whiteface, so a bozo can never
+self-promote.
 
 **Outbox** (`src/outbox.ts`)
 Everything the policy clears, delivered one at a time. The policy decides whether
@@ -76,7 +82,10 @@ RFC 6455 server implemented directly on `node:http` upgrades. No runtime
 dependencies, so once it is built the whole thing runs with nothing installed.
 
 **Bozo client** (`web/`)
-Read-only xterm.js mirror plus a compose box and a keypad. The terminal has
+Read-only xterm.js mirror plus a compose box and a keypad, with the roster
+(`web/circus.ts`) and the f2f lane (`web/lane.ts`) as their own modules, so
+`web/client.ts` stays the socket and the protocol rather than three surfaces at
+once. The terminal has
 `disableStdin`, so the only way a bozo reaches the session is through the policy
 gate. vite bundles the page, the client and xterm into `dist/web`, which is what
 both servers serve: a bozo's browser loads nothing from a CDN.
@@ -193,6 +202,20 @@ at mode 0700.
 In `gallery` the bozo cannot cause any side effect: submissions sit in a queue
 until the host releases them.
 
+**Trust is per bozo, and per connection.** `MAX_BOZOS` is 30, so a single
+room-wide switch means elevating one person elevates the other twenty-nine.
+`Policy` keys its overrides on the connection id rather than the name: two bozos
+can call themselves the same thing, and a name is theirs to pick. The
+consequence is that trust does not survive a reconnect, which is the fail-safe
+direction - whoever comes back is in the gallery until the host says otherwise -
+and `#onGuest`'s close handler forgets it rather than leaving it behind for an
+id nobody holds. A pin to `gallery` is worth as much as one to `ring`: it is
+what holds when the room default goes the other way.
+
+Only what a bozo may do is per bozo. What it is *told* follows: `policy:mode`
+says what THAT bozo may now do, and the room default rides the roster instead of
+being broadcast as everyone's mode.
+
 **The injection guard is part of this, not a nicety.** `send-keys` of text plus
 `Enter` into a session that is showing a modal types into nothing and then
 confirms whatever option is highlighted. Found the hard way during the first
@@ -218,11 +241,11 @@ the tokens change, because rotating the bigtop's token drops the uplink, and a
 "host disconnected" and keep reconnecting into a 401.
 
 `c2c ctl kick` is the smaller one: it disconnects a bozo without revoking
-anything, so they can come back with the link they still hold. Both live on the
-control socket rather than the whiteface: rotate mints a secret and its reply is
-the only place the new link exists, and it would cut the socket that asked for
-it. Kick could be a whiteface command, but a browser has no roster to pick a
-target from yet.
+anything, so they can come back with the link they still hold. Rotate stays on
+the control socket rather than the whiteface: it mints a secret, its reply is the
+only place the new link exists, and it would cut the socket that asked for it.
+Kick and trust are whiteface commands now that the browser has a roster to pick a
+target from, which is what was missing before.
 
 In `ring` the bozo can run arbitrary code as the host. There is no way to offer
 "send prompts freely" without this, because a prompt can ask for anything. The
@@ -309,6 +332,29 @@ than spawning a node process every couple of seconds the way a `#(c2c ctl ...)`
 status command would. tmux only runs `#()` jobs while a client is attached, so
 it costs nothing when the host is detached.
 
+## Who is in the circus
+
+The roster is one message, whole every time it changes: thirty short rows at the
+very most, and a roster that disagrees with the one the host is looking at is
+worse than the bytes are worth. It carries the room default with it, which is
+what makes `policy:mode` free to mean "you" rather than "everyone".
+
+It goes out on join, leave, rename, trust, a mode change and a presence flip, and
+nothing else. Presence is the reason the last one exists: connected is not the
+same as watching, and a line typed into a lane nobody is reading looks exactly
+like one that was read. A browser reports itself idle when its tab is hidden or
+after a minute of nobody touching anything, and only a *change* is worth a
+roster, or thirty browsers ticking every twenty seconds would be thirty rosters a
+minute for nothing.
+
+Typing is deliberately not on the roster. It changes every few seconds and
+expires on its own, so it is relayed as its own message, throttled at both ends,
+and timed out by the receiver rather than kept as state anywhere.
+
+`via` is on the roster for everyone, and it is a transport (`local`, `bigtop`)
+rather than an address, so there is nothing in it the rest of the room may not
+see.
+
 ## Scrollback is a snapshot, not a surface
 
 The mirror renders a byte stream that positions the cursor relative to a fixed
@@ -364,6 +410,13 @@ That is worth stating because the temptation is to route it through the same
 machinery with a flag. A flag can be wrong. A lane with no code path to the pane
 cannot be.
 
+A line drawn before it is acknowledged is the other half of the same idea: the
+browser gives each of its own lines a nonce, draws it at once, and settles it
+when the ringmaster echoes the nonce back. One that never comes back is marked
+rather than dropped, because a lane you cannot trust to keep what you typed is
+one you type the important thing into twice. The nonce is broadcast with the
+line and ignored by everyone else - one frame beats one frame each.
+
 The host is the awkward half: they have no browser panel, so a bozo's line
 arrives as `tmux display-message` and their own goes back through `c2c say` on
 the control socket. Which is also why `notify` doubles every `#` before handing
@@ -390,6 +443,9 @@ whiteface fixes that without moving host control onto the share link.
 - The pending queue is sent to the whiteface alone. Another bozo's unreleased
   message is not the rest of the gallery's business, least of all one that is
   about to be dropped.
+- `trust` and `kick` are whiteface commands, so a headless host hands out the
+  ring one person at a time and shows somebody the door from the same roster
+  everybody else is reading.
 
 Zavatta deliberately cannot claim it: the MCP server implements no whiteface
 tool, so an agent still cannot release its own messages.

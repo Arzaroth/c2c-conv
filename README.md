@@ -21,6 +21,7 @@ It is a circus, but the names are load-bearing rather than decorative:
 | **bozo** | your guest. The premise is clown to clown, so there are two of you |
 | **the gallery** | the cheap seats. A bozo watches and can heckle, but cannot act |
 | **yolo** | the other mode. A bozo in yolo types as you do, with your permissions |
+| **the circus** | who is in the tent: the roster, what each of them may do, and whether anyone is still watching |
 | **f2f** | farce-to-farce: the lane between the clowns. Claude never hears it |
 | **the outbox** | what is cleared to send and waiting for the session to be free |
 | **HOINK** | the greeting. A bozo hoinks its name, the ringmaster hoinks back |
@@ -145,7 +146,7 @@ send waits for you, and you handle it without leaving the session:
 The status bar carries the state the whole time, so you are never guessing:
 
 ```
-c2c gallery | 1 bozo | 2 waiting (prefix+a approve, prefix+d deny)
+c2c gallery | 3 bozos | 1 in the ring | 2 waiting (prefix+a approve, prefix+d deny)
 ```
 
 This is deliberate. Gallery is both the default and the safe mode, and if
@@ -163,6 +164,33 @@ c2c ctl cancel o2         # pull one back out of the outbox
 c2c ctl kick 01a8c1a0     # show one bozo the door
 c2c ctl rotate            # new link, everyone out, the old one dead
 ```
+
+## Who is in the circus
+
+`prefix + y` and `c2c ctl mode` set the **room default**: what a bozo may do
+when you have not said anything about them in particular. With thirty seats that
+is a blunt instrument, so trust is also per bozo:
+
+```sh
+c2c ctl who                    # the roster: who is here, and what each may do
+c2c ctl trust alice yolo       # alice alone goes into the ring
+c2c ctl trust bob gallery      # bob alone stays out of it, whatever the room does
+c2c ctl trust alice default    # back to whatever the room is
+```
+
+A pin holds against the room moving underneath it, in both directions: the point
+of `trust bob gallery` is that switching the room to yolo leaves bob where he is.
+
+Trust is tied to the connection it was given to, not to a name - two bozos can
+call themselves the same thing, and a name is theirs to pick. So it does not
+survive a reconnect: whoever comes back is in the gallery until you say
+otherwise. The fail-safe direction, and a reload is cheap to redo.
+
+The **circus** tab is the same thing in the browser: everyone who is here, with a
+green pip for anyone actually watching and an amber one for a tab that has been
+left alone. The whiteface gets the buttons with it - gallery, ring, default and
+kick, per row - so the roster is where a headless host hands out trust and shows
+somebody the door.
 
 ## Headless: web only, nobody at the terminal
 
@@ -278,7 +306,8 @@ mode means no side effects. Only ring unlocks it.
 When you trust them, elevate:
 
 ```sh
-c2c ctl mode yolo         # bozo messages go straight in
+c2c ctl mode yolo         # the whole room goes straight in
+c2c ctl trust alice yolo  # or just the one person you meant
 c2c ctl mode gallery      # back to the cheap seats
 ```
 
@@ -296,6 +325,7 @@ safe. Elevate for people you would hand your actual keyboard to.
 | `c2c invite [-s NAME]` | reprint the bozo instructions |
 | `c2c say <text>` | post a line to the f2f lane |
 | `c2c ctl <status\|list\|mode\|approve\|deny\|approve-all\|deny-all>` | host control |
+| `c2c ctl <who\|trust WHO gallery\|yolo\|default>` | the roster, and trust one bozo at a time |
 | `c2c ctl <outbox\|cancel ID\|cancel-all\|bump ID\|say TEXT>` | the outbox and the lane |
 | `c2c ctl <kick ID\|rotate>` | show one bozo out, or reset the link for everybody |
 | `c2c stop [-s NAME]` | tear it down |
@@ -350,6 +380,13 @@ c2c say "on it, hands off the keyboard"
 
 A bozo's line arrives in the pane as a tmux message. An unread count sits on the
 tab for everyone else.
+
+It knows who is in it. The lane says who else is here and whether they are
+watching, who is typing, and draws a line at where you got to when you come back
+from the terminal - because a line typed into an empty room looks exactly like
+one that was read. Anything you say appears the moment you send it and settles
+when the ringmaster echoes it back; if it does not come back it says so and
+offers to send it again, rather than vanishing.
 
 ## The outbox
 

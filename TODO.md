@@ -4,9 +4,10 @@ What is left, and why each thing is worth doing. Grounded in the code as it
 stands at v0.3.2: the architecture is finished for what it does, so almost
 nothing here is plumbing.
 
-Done since v0.3.1: `c2c_wait`, so an agent bozo can sit on the socket rather
-than poll the screen, and revocation - `c2c ctl kick` for one bozo, `c2c ctl
-rotate` to replace the token and kill every link already handed out.
+Done since v0.3.2: per-bozo trust, so one person can be let into the ring
+without the other twenty-nine coming with them, and the circus - a roster with
+presence, which is also what `kick` and `trust` needed before they could be
+whiteface commands.
 
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#open-work) used to carry a short
 open-work list of its own. It points here now, so there is one of it rather than
@@ -41,8 +42,8 @@ vite bundles it into `dist/web`.)
 ## Attribution and an audit log
 
 **S.** Write `~/.c2c-conv/<session>/audit.jsonl`: every submission, approval,
-denial, key press, mode change and whiteface claim, with who and when. Label
-turns in the history panel with the bozo who sent them.
+denial, key press, mode change, trust change and whiteface claim, with who and
+when. Label turns in the history panel with the bozo who sent them.
 
 *Why.* The design guarantees Claude cannot tell a bozo's message from the host's,
 which is correct and is the whole point. It also means nobody can afterwards. For
@@ -65,6 +66,8 @@ it actually landed, which is the attribution the transcript cannot give you.
 
 **M.** Persist token, mode, whiteface token and the pending queue into the state
 dir, and let a fresh ringmaster adopt a tmux session that is still running.
+Per-bozo trust deliberately does not persist: it belongs to a connection, and
+the ringmaster restarting drops every connection there was.
 
 *Why.* The tmux session outlives the ringmaster but the sharing does not. All of
 that state is process memory, and `metaFile` is unlinked on stop, so a crash
@@ -74,30 +77,6 @@ the URL costs the most.
 
 *Touches:* `src/ringmaster.ts` (`#writeMeta`, `start`), `src/cli.ts`,
 `src/paths.ts`, `src/whiteface.ts`.
-
-## Say who is in the lane
-
-**S.** The f2f lane has no presence: you cannot tell whether the person you are
-talking to is still there, and a line typed into an empty room looks the same as
-one that was read.
-
-*Why.* The lane exists so a bozo can say "wait, do not run that" before it
-matters. Not knowing whether anyone is on the other end is most of the value of
-a chat surface, and `#bozos` already holds exactly who is connected.
-
-*Touches:* `src/ringmaster.ts` (`#onGuest`, `#hoink`), `web/client.ts`.
-
-## Per-bozo trust, not one switch
-
-**M.** Elevate one person to the ring without elevating the other twenty-nine.
-
-*Why.* `Policy.#mode` is process-wide, so `prefix + y` promotes the whole room,
-and `MAX_BOZOS` is 30. That is fine for a pair session and wrong for anything
-with an audience, which is what thirty implies. The queue entries already carry
-`bozo` and `#bozos` is a keyed map, so the state has somewhere to live.
-
-*Touches:* `src/policy.ts`, `src/ringmaster.ts` (`#onGuestMessage`),
-`c2c ctl mode <bozo>`, `web/client.ts`.
 
 ## `--cols` and `--rows`
 
@@ -133,7 +112,5 @@ By value against effort:
 1. Add CI - the integration tests run nowhere automatic
 2. Attribution and an audit log - closes the hole the security model opens
 3. `c2c resume`
-4. Per-bozo trust
-5. Who is in the lane
-6. `--cols` / `--rows`
-7. Replay
+4. `--cols` / `--rows`
+5. Replay

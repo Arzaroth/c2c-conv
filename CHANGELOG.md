@@ -9,6 +9,44 @@ than adding to it.
 
 ## [Unreleased]
 
+### Added
+
+- **Per-bozo trust.** `c2c ctl trust <who> yolo|gallery|default` elevates one
+  person to the ring, or pins one out of it, without moving the other
+  twenty-nine. A pin holds when the room default goes the other way, which is
+  the point of pinning to `gallery`. Trust belongs to the connection it was
+  given to, not to a name, so it does not survive a reconnect - whoever comes
+  back is in the gallery until the host says otherwise.
+- **The circus.** A roster of who is in the tent: what each bozo may do, which
+  way they got in, whether they hold the whiteface, and whether anyone is
+  actually watching. `c2c ctl who` prints it, and the browser has it as a tab
+  with a live count. For the whiteface each row carries the buttons with it -
+  gallery, ring, default, kick - so a headless host hands out the ring from the
+  same roster everybody else is reading.
+- **Presence and typing in the f2f lane.** The lane says who else is in it and
+  whether they are watching (a hidden tab, or a minute of nobody touching
+  anything, reads as idle), shows who is typing, and draws a line at where you
+  got to when you come back to it.
+- The lane draws your own line the moment you send it and settles it when the
+  ringmaster echoes it back. One that does not come back says so and offers to
+  send it again rather than vanishing.
+- `trust`, `kick` and `who` are whiteface commands now that a browser has a
+  roster to pick a target from. `rotate` deliberately stays on the control
+  socket: its reply is the only place the new link exists.
+- `c2c_status` for the MCP bozo says who else is in the circus, and reports the
+  room default when it differs from what the agent itself may do.
+
+### Changed
+
+- `policy:mode` on the wire means what THAT bozo may now do, rather than what
+  the room does. The room default rides the roster instead.
+- The tmux status line counts how many bozos are in the ring while the room is
+  in the gallery, which in a gallery is the only thing that can act.
+- `c2c ctl status` lists each bozo with its mode, whether it was trusted
+  personally, whether it holds the whiteface and whether it is idle.
+- The old mode spellings (`ring`, `spectator`) are resolved in one place now, so
+  they work wherever a mode is named, `trust` included.
+
 ## [0.3.2] - 2026-09-02
 
 ### Added
