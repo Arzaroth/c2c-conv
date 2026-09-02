@@ -68,6 +68,9 @@ Because it is normally a symlink into a checkout, `c2c --version` reports the
 commit as well as the release, and marks it `-dirty` when the working tree has
 changes - so you can tell what is actually installed.
 
+[CHANGELOG.md](CHANGELOG.md) says what each release changed, and which ones
+break an existing checkout.
+
 ## Use
 
 ```sh
