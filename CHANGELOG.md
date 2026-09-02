@@ -9,6 +9,11 @@ than adding to it.
 
 ## [Unreleased]
 
+### Added
+
+- `c2c_status` says how many of the agent's own messages the host is still
+  holding, which until now it had no way to see.
+
 ## [0.3.1] - 2026-09-02
 
 ### Added

@@ -22,6 +22,9 @@ export class BozoLink extends EventEmitter {
   state: PaneState = 'unknown'
   screen = ''
   history: TranscriptEntry[] = []
+  // This agent's own submissions still held by the host. policy:queued goes to
+  // the whiteface alone, so what lands here is what it was told about itself.
+  pending: PendingEntry[] = []
   outbox: OutboxEntry[] = []
   outboxMode: OutboxMode = 'drain'
   lane: F2fMessage[] = []
@@ -87,6 +90,12 @@ export class BozoLink extends EventEmitter {
       this.outboxMode = msg.mode
     }
     if (msg.type === 'f2f') this.lane.push(msg.msg)
+    if (msg.type === 'pending') {
+      this.pending.push({ id: msg.id, text: msg.text, bozo: msg.bozo, at: Date.now() })
+    }
+    if (msg.type === 'policy:approved' || msg.type === 'policy:denied') {
+      this.pending = this.pending.filter((entry) => entry.id !== msg.id)
+    }
     if (msg.type === 'policy:mode') this.mode = msg.mode
     if (msg.type === 'state') this.state = msg.state
     if (msg.type === 'screen') this.screen = stripAnsi(msg.data).replace(/[ \t]+$/gm, '')
@@ -323,6 +332,7 @@ export class McpServer {
         `connected: ${link.connected}`,
         `mode: ${link.mode}${link.mode === 'gallery' ? ' (your messages wait for the host)' : ' (your messages go straight in)'}`,
         `session: ${link.state}`,
+        `yours held by the host: ${link.pending.length}`,
         `outbox: ${waiting ? `${waiting} message${waiting === 1 ? '' : 's'} waiting to go in` : 'empty'} (${link.outboxMode})`,
         `turns known: ${link.history.length}`,
       ].join('\n')
