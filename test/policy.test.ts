@@ -142,6 +142,83 @@ test('the whiteface can answer a dialog in gallery', () => {
   assert.equal(policy.submitKey({ key: 'Down', bozo: 'bozo' }).action, 'refused')
 })
 
+// Per-bozo trust: the room is thirty seats, and elevating one person must not
+// elevate the other twenty-nine.
+test('one bozo can be let into the ring without the room going with them', () => {
+  const policy = new Policy()
+  policy.trust('alice', YOLO)
+
+  assert.equal(policy.mode, GALLERY)
+  assert.equal(policy.modeFor('alice'), YOLO)
+  assert.equal(policy.modeFor('bob'), GALLERY)
+  assert.equal(policy.submit({ text: 'go', bozo: 'alice', bozoId: 'alice' }).action, 'send')
+  assert.equal(policy.submit({ text: 'go', bozo: 'bob', bozoId: 'bob' }).action, 'queued')
+})
+
+// The pin is worth as much pointing down as up: it is what the host reaches for
+// when the room is in yolo and one bozo should not be.
+test('a bozo pinned to gallery stays there when the room goes to yolo', () => {
+  const policy = new Policy()
+  policy.trust('bob', GALLERY)
+  policy.setMode(YOLO)
+
+  assert.equal(policy.modeFor('bob'), GALLERY)
+  assert.equal(policy.submit({ text: 'go', bozo: 'bob', bozoId: 'bob' }).action, 'queued')
+  assert.equal(policy.submit({ text: 'go', bozo: 'alice', bozoId: 'alice' }).action, 'send')
+})
+
+test('keys follow the same per-bozo answer as messages', () => {
+  const policy = new Policy()
+  policy.trust('alice', YOLO)
+
+  assert.equal(policy.submitKey({ key: 'Enter', bozo: 'alice', bozoId: 'alice' }).action, 'send')
+  assert.equal(policy.submitKey({ key: 'Enter', bozo: 'bob', bozoId: 'bob' }).action, 'refused')
+})
+
+test('untrust puts a bozo back on the room default, and says so once', () => {
+  const policy = new Policy()
+  const seen: PolicyEvent[] = []
+  policy.onEvent((event) => {
+    if (event.type === 'trust') seen.push(event)
+  })
+
+  policy.trust('alice', YOLO)
+  policy.trust('alice', YOLO)
+  assert.equal(policy.untrust('alice'), true)
+  assert.equal(policy.untrust('alice'), false)
+
+  assert.equal(policy.modeFor('alice'), GALLERY)
+  assert.deepEqual(seen, [
+    { type: 'trust', bozo: 'alice', mode: YOLO },
+    { type: 'trust', bozo: 'alice', mode: null },
+  ])
+})
+
+// Trust was for the person on the other end of that socket. Whoever comes back
+// on the next one is in the gallery until the host says otherwise.
+test('trust does not outlive the connection it was given to', () => {
+  const policy = new Policy()
+  policy.trust('alice', YOLO)
+  policy.forget('alice')
+
+  assert.equal(policy.modeFor('alice'), GALLERY)
+  assert.equal(policy.trustedMode('alice'), null)
+})
+
+test('an unknown mode is refused for one bozo as it is for the room', () => {
+  const policy = new Policy()
+  assert.throws(() => policy.trust('alice', 'admin'))
+  assert.equal(policy.trustedMode('alice'), null)
+})
+
+// The old spellings stay valid wherever a mode is named.
+test('ring and spectator still name the two modes', () => {
+  const policy = new Policy()
+  assert.equal(policy.setMode('ring'), YOLO)
+  assert.equal(policy.setMode('spectator'), GALLERY)
+  assert.equal(policy.trust('alice', 'ring'), YOLO)
+})
+
 test('the whiteface still cannot press keys outside the allowlist', () => {
   const policy = new Policy()
   assert.equal(policy.submitKey({ key: 'C-c', bozo: 'host', whiteface: true }).action, 'rejected')

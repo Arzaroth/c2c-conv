@@ -51,6 +51,21 @@ interface F2fMessage {
   host?: boolean
 }
 
+// One line of the roster: who is in the circus, and what they are allowed to
+// do. mode is that bozo's effective mode, which is the room default unless the
+// host trusted them personally. via is which way they got in - a transport, not
+// an address, so there is nothing here the room may not see.
+interface RosterEntry {
+  id: string
+  name: string
+  mode: Mode
+  trusted: boolean
+  whiteface: boolean
+  idle: boolean
+  since: number
+  via: string
+}
+
 interface CursorPosition {
   x: number
   y: number
@@ -76,6 +91,9 @@ type KeyResult =
 
 type PolicyEvent =
   | { type: 'mode'; mode: Mode }
+  // One bozo's trust was set or cleared. mode null means they are back on
+  // whatever the room default happens to be.
+  | { type: 'trust'; bozo: string; mode: Mode | null }
   | { type: 'sent'; text: string; bozo?: string }
   | { type: 'key'; key: string; bozo?: string }
   | ({ type: 'queued' | 'approved' | 'denied' } & PendingEntry)
@@ -89,25 +107,28 @@ type ControlCommand =
   | 'status' | 'list' | 'mode' | 'stop' | 'say'
   | 'approve' | 'deny' | 'approve-next' | 'deny-next' | 'approve-all' | 'deny-all'
   | 'outbox' | 'cancel' | 'cancel-all' | 'bump'
-  | 'kick' | 'rotate'
+  | 'kick' | 'rotate' | 'trust' | 'who'
 
 // status carries the token and stop ends the session: those two stay with
 // c2c ctl and are never reachable from a browser. rotate is out for the same
 // reason as status - it mints the new secret, the reply is the only place the
-// new link exists, and it would cut the socket that asked for it. kick is out
-// until a browser has a roster to pick a target from. say is the host's way
-// into the f2f lane from the terminal, and a browser already has the lane.
+// new link exists, and it would cut the socket that asked for it. say is the
+// host's way into the f2f lane from the terminal, and a browser already has
+// the lane. kick and trust are in: the browser has a roster to pick a target
+// from now, which is the thing that was missing.
 type WhitefaceCommand =
-  Exclude<ControlCommand, 'status' | 'stop' | 'say' | 'rotate' | 'kick'>
+  Exclude<ControlCommand, 'status' | 'stop' | 'say' | 'rotate'>
 
 type ControlRequest =
   | {
       cmd: 'status' | 'list' | 'stop' | 'approve-next' | 'deny-next' | 'approve-all' | 'deny-all'
-        | 'outbox' | 'cancel-all' | 'rotate'
+        | 'outbox' | 'cancel-all' | 'rotate' | 'who'
     }
   | { cmd: 'mode'; mode: string }
   | { cmd: 'say'; text: string }
   | { cmd: 'kick'; who: string }
+  // "default" puts a bozo back on the room default rather than pinning them.
+  | { cmd: 'trust'; who: string; mode: string }
   | { cmd: 'approve' | 'deny' | 'cancel' | 'bump'; id: number | string }
 
 // The three links a browser might be handed. Spread into both the metadata
@@ -140,6 +161,8 @@ interface ActionReply {
   bumped?: OutboxEntry | null
   said?: F2fMessage
   kicked?: { id: string; name: string }
+  trusted?: { id: string; name: string; mode: Mode | null }
+  bozos?: RosterEntry[]
   // Everything a fresh link is made of, so the terminal that asked for the
   // rotation can print the new one without reading a file that may not have
   // been rewritten yet.
@@ -152,7 +175,9 @@ type ControlReply = StatusReply | ActionReply | { ok: false; error: string }
 /* ── ringmaster to bozo ─────────────────────────────────────────────────── */
 
 // Every policy event is rebroadcast under a policy: prefix so a bozo can tell
-// the gate's decisions apart from the session's own traffic.
+// the gate's decisions apart from the session's own traffic. policy:mode is the
+// exception to the rebroadcast: trust is per bozo, so it is sent to the one
+// bozo it is about and says what THAT bozo may now do, not what the room does.
 type PolicyBroadcast =
   | { type: 'policy:mode'; mode: Mode }
   | { type: 'policy:sent'; text: string; bozo?: string }
@@ -163,6 +188,9 @@ type ServerMessage =
   // The greeting also settles the role, and the holder gets the queue with it:
   // a whiteface reconnecting after messages piled up sees them straight away.
   | {
+      // mode is this bozo's own effective mode. It is the room default at the
+      // moment of a hoink, because trust is per connection and a fresh one
+      // carries none, but nothing downstream should assume the two are equal.
       type: 'hoink'
       mode: Mode
       state: PaneState
@@ -193,7 +221,17 @@ type ServerMessage =
   // fifty short strings at the very most, and a queue that disagrees with the
   // one the host is looking at is worse than the bytes are worth.
   | { type: 'outbox'; entries: OutboxEntry[]; mode: OutboxMode }
-  | { type: 'f2f'; msg: F2fMessage }
+  // nonce is the sender's own tag for the line, echoed so its browser can
+  // settle the copy it drew before the round trip. Everyone gets it and
+  // everyone but the sender ignores it: one broadcast beats one frame each.
+  | { type: 'f2f'; msg: F2fMessage; nonce?: string }
+  // Who is in the circus, whole every time, with the room default alongside:
+  // it is thirty short rows at the very most, and a roster that disagrees with
+  // the one the host is looking at is worse than the bytes are worth.
+  | { type: 'roster'; mode: Mode; bozos: RosterEntry[] }
+  // Somebody is typing in the lane. Deliberately not on the roster: it changes
+  // every few seconds and expires on its own, so the receiver times it out.
+  | { type: 'typing'; bozo: string; name: string }
   // A snapshot of the pane with its scrollback, asked for and answered once.
   // Never the live surface: the mirror positions the cursor relative to a fixed
   // grid, so anything that scrolls has to be somewhere else entirely.
@@ -214,13 +252,19 @@ type BozoMessage =
   | { type: 'refresh' }
   | { type: 'key'; key: string }
   | { type: 'submit'; text: string }
-  | { type: 'f2f'; text: string }
+  | { type: 'f2f'; text: string; nonce?: string }
+  // Presence and typing, both of them cheap and both of them throttled by the
+  // sender. here is the heartbeat that says whether anyone is actually looking.
+  | { type: 'here'; idle?: boolean }
+  | { type: 'typing' }
   | { type: 'scrollback'; lines?: number }
   // The whiteface half of the vocabulary, shaped like a control request minus
   // the cmd key, which the ringmaster fills in from the type.
   | { type: 'list' | 'approve-next' | 'deny-next' | 'approve-all' | 'deny-all' }
-  | { type: 'outbox' | 'cancel-all' }
+  | { type: 'outbox' | 'cancel-all' | 'who' }
   | { type: 'mode'; mode: Mode | 'toggle' }
+  | { type: 'trust'; who: string; mode: string }
+  | { type: 'kick'; who: string }
   | { type: 'approve' | 'deny' | 'cancel' | 'bump'; id: number | string }
 
 /* ── transports ─────────────────────────────────────────────────────────── */
