@@ -70,6 +70,10 @@ export class BozoLink extends EventEmitter {
   outbox: OutboxEntry[] = []
   outboxMode: OutboxMode = 'drain'
   lane: F2fMessage[] = []
+  // Who else is in the circus. mode on this link is this agent's own, which is
+  // the room default until the host trusts it personally.
+  circus: RosterEntry[] = []
+  roomMode: Mode = 'gallery'
   connected = false
 
   constructor({ url, name = 'zavatta' }: { url: string; name?: string }) {
@@ -139,6 +143,10 @@ export class BozoLink extends EventEmitter {
       this.pending = this.pending.filter((entry) => entry.id !== msg.id)
     }
     if (msg.type === 'policy:mode') this.mode = msg.mode
+    if (msg.type === 'roster') {
+      this.circus = msg.bozos
+      this.roomMode = msg.mode
+    }
     if (msg.type === 'state') this.state = msg.state
     if (msg.type === 'screen') this.screen = stripAnsi(msg.data).replace(/[ \t]+$/gm, '')
     if (msg.type === 'transcript:history') this.history = msg.entries
@@ -253,7 +261,7 @@ const TOOLS = [
   {
     name: 'c2c_status',
     description:
-      'Whether you are connected, the current mode (gallery or yolo), and what the session is doing.',
+      'Whether you are connected, what you yourself may do (gallery or yolo), who else is in the circus, and what the session is doing.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
@@ -428,13 +436,26 @@ export class McpServer {
 
     if (name === 'c2c_status') {
       const waiting = link.outbox.length
+      const yours = link.mode === 'gallery'
+        ? ' (your messages wait for the host)'
+        : ' (your messages go straight in)'
+      const room = link.mode === link.roomMode ? '' : `, the room default is ${link.roomMode}`
+      const circus = link.circus.length
+        ? link.circus
+            .map((bozo) => {
+              const marks = [bozo.mode, bozo.whiteface ? 'whiteface' : '', bozo.idle ? 'idle' : '']
+              return `  ${bozo.name} (${marks.filter(Boolean).join(', ')})`
+            })
+            .join('\n')
+        : '  (nobody)'
       return [
         `connected: ${link.connected}`,
-        `mode: ${link.mode}${link.mode === 'gallery' ? ' (your messages wait for the host)' : ' (your messages go straight in)'}`,
+        `mode: ${link.mode}${yours}${room}`,
         `session: ${link.state}`,
         `yours held by the host: ${link.pending.length}`,
         `outbox: ${waiting ? `${waiting} message${waiting === 1 ? '' : 's'} waiting to go in` : 'empty'} (${link.outboxMode})`,
         `turns known: ${link.history.length}`,
+        `in the circus:\n${circus}`,
       ].join('\n')
     }
 
