@@ -89,11 +89,13 @@ type ControlCommand =
   | 'status' | 'list' | 'mode' | 'stop' | 'say'
   | 'approve' | 'deny' | 'approve-next' | 'deny-next' | 'approve-all' | 'deny-all'
   | 'outbox' | 'cancel' | 'cancel-all' | 'bump'
+  | 'kick'
 
 // status carries the token and stop ends the session: those two stay with
-// c2c ctl and are never reachable from a browser. say is the host's way into
-// the f2f lane from the terminal, and a browser already has the lane itself.
-type WhitefaceCommand = Exclude<ControlCommand, 'status' | 'stop' | 'say'>
+// c2c ctl and are never reachable from a browser. kick is out until a browser
+// has a roster to pick a target from. say is the host's way into the f2f lane
+// from the terminal, and a browser already has the lane itself.
+type WhitefaceCommand = Exclude<ControlCommand, 'status' | 'stop' | 'say' | 'kick'>
 
 type ControlRequest =
   | {
@@ -102,6 +104,7 @@ type ControlRequest =
     }
   | { cmd: 'mode'; mode: string }
   | { cmd: 'say'; text: string }
+  | { cmd: 'kick'; who: string }
   | { cmd: 'approve' | 'deny' | 'cancel' | 'bump'; id: number | string }
 
 // The three links a browser might be handed. Spread into both the metadata
@@ -133,6 +136,7 @@ interface ActionReply {
   cancelled?: OutboxEntry | OutboxEntry[] | null
   bumped?: OutboxEntry | null
   said?: F2fMessage
+  kicked?: { id: string; name: string }
   stopping?: boolean
 }
 

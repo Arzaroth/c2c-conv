@@ -160,6 +160,7 @@ c2c ctl status            # who is connected, what is waiting, what is going in
 c2c ctl approve 3         # release a specific message
 c2c ctl deny 3
 c2c ctl cancel o2         # pull one back out of the outbox
+c2c ctl kick 01a8c1a0     # show one bozo the door
 ```
 
 ## Headless: web only, nobody at the terminal
@@ -265,6 +266,7 @@ safe. Elevate for people you would hand your actual keyboard to.
 | `c2c say <text>` | post a line to the f2f lane |
 | `c2c ctl <status\|list\|mode\|approve\|deny\|approve-all\|deny-all>` | host control |
 | `c2c ctl <outbox\|cancel ID\|cancel-all\|bump ID\|say TEXT>` | the outbox and the lane |
+| `c2c ctl kick ID` | show one bozo the door |
 | `c2c stop [-s NAME]` | tear it down |
 | `c2c bigtop [-p PORT] [--bind ADDR]` | run a bigtop |
 

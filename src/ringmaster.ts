@@ -306,6 +306,24 @@ export class Ringmaster {
     }
   }
 
+  // Names are what a bozo calls itself and two of them can be "bozo", so a name
+  // that matches more than one is refused rather than guessed at. The id is
+  // always unambiguous, and c2c ctl status prints it next to the name.
+  #findBozos(who: unknown): Bozo[] {
+    const needle = String(who ?? '').trim().toLowerCase()
+    if (!needle) return []
+    const all = [...this.#bozos.values()]
+    const byId = all.filter((bozo) => bozo.id.toLowerCase() === needle)
+    return byId.length ? byId : all.filter((bozo) => bozo.name.toLowerCase() === needle)
+  }
+
+  #show(bozo: Bozo, text: string): void {
+    // bye rather than a notice: it is what tells a browser to stop reconnecting,
+    // and a bozo that reconnects on a dead token learns nothing from the 401.
+    bozo.channel.sendJson({ type: 'bye', text })
+    bozo.channel.close()
+  }
+
   async #onGuest(channel: Channel): Promise<void> {
     const bozo: Bozo = { id: channel.id, name: 'bozo', origin: channel.origin, channel }
     this.#bozos.set(channel.id, bozo)
@@ -717,6 +735,18 @@ export class Ringmaster {
       case 'say': {
         const said = this.#say('host', msg.text, true)
         return said ? { ok: true, said } : { ok: false, error: 'nothing to say' }
+      }
+      case 'kick': {
+        const found = this.#findBozos(msg.who)
+        if (!found.length) return { ok: false, error: `nobody here called "${msg.who}"` }
+        if (found.length > 1) {
+          const ids = found.map((bozo) => bozo.id).join(', ')
+          return { ok: false, error: `${found.length} bozos called "${msg.who}" - kick one by id: ${ids}` }
+        }
+        const [bozo] = found
+        this.#show(bozo, 'the host closed your connection')
+        this.#notifyHost(`c2c: kicked ${bozo.name}`)
+        return { ok: true, kicked: { id: bozo.id, name: bozo.name } }
       }
       case 'approve-all':
         return { ok: true, approved: this.#policy.approveAll() }

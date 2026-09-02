@@ -18,6 +18,14 @@ than adding to it.
   reports that nothing happened rather than erroring.
 - `c2c_status` says how many of the agent's own messages the host is still
   holding, which until now it had no way to see.
+- `c2c ctl kick <id|name>` disconnects one bozo. It revokes nothing - they still
+  hold a working link - and a name matching more than one bozo is refused rather
+  than guessed at.
+
+### Changed
+
+- `c2c ctl status` lists bozos one per line with their id, which is what
+  `c2c ctl kick` takes and what tells two bozos called `bozo` apart.
 
 ## [0.3.1] - 2026-09-02
 

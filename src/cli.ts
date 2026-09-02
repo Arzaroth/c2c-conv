@@ -447,7 +447,7 @@ function attach(session: string): Promise<void> {
 
 const CTL_USAGE =
   'usage: c2c ctl <status|list|mode gallery|mode yolo|approve ID|deny ID|approve-all|deny-all' +
-  '|outbox|cancel ID|cancel-all|bump ID|say TEXT>'
+  '|outbox|cancel ID|cancel-all|bump ID|say TEXT|kick ID>'
 
 async function cmdCtl({ opts, rest }: { opts: Options; rest: string[] }): Promise<void> {
   const [sub, ...args] = rest
@@ -477,6 +477,8 @@ function buildControlMessage(sub: string | undefined, args: string[]): ControlRe
       return { cmd: 'mode', mode: MODE_ALIASES[args[0]] ?? args[0] }
     case 'say':
       return { cmd: 'say', text: args.join(' ') }
+    case 'kick':
+      return { cmd: 'kick', who: args[0] }
     case 'approve':
     case 'deny':
     case 'cancel':
@@ -502,9 +504,14 @@ function printStatus(reply: ControlReply): void {
   if (reply.bigtop) {
     console.log(`bigtop   ${reply.bigtop.connected ? 'connected' : 'disconnected'}  ${reply.bigtop.url}`)
   }
-  console.log(
-    `bozos   ${reply.bozos.length ? reply.bozos.map((g) => `${g.name} (${g.via})`).join(', ') : 'none'}`
-  )
+  // With the id, because that is what c2c ctl kick takes and two bozos called
+  // "bozo" is the default rather than the exception.
+  if (reply.bozos.length) {
+    console.log('bozos:')
+    for (const bozo of reply.bozos) console.log(`  ${bozo.id}  ${bozo.name} (${bozo.via})`)
+  } else {
+    console.log('bozos    none')
+  }
   if (reply.pending.length) {
     console.log('pending:')
     for (const entry of reply.pending) {
@@ -559,7 +566,7 @@ usage:
   c2c invite [-s NAME]
   c2c say <text>   post a line to the f2f lane, which claude never sees
   c2c ctl <status|list|mode gallery|mode yolo|approve ID|deny ID|approve-all|deny-all
-           |outbox|cancel ID|cancel-all|bump ID|say TEXT>
+           |outbox|cancel ID|cancel-all|bump ID|say TEXT|kick ID>
   c2c stop [-s NAME]
   c2c version | --version
   c2c bigtop [-p PORT] [--bind ADDR]
