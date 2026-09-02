@@ -810,8 +810,17 @@ export class Ringmaster {
     try {
       const data = await tmux.captureScrollback(this.#session, wanted)
       const { cols, rows } = await tmux.paneSize(this.#session)
+      const history = await tmux.paneHistory(this.#session)
       if (channel.closed) return
-      channel.sendJson({ type: 'scrollback', data, cols, rows, lines: data.split('\n').length })
+      channel.sendJson({
+        type: 'scrollback',
+        data,
+        cols,
+        rows,
+        lines: data.split('\n').length,
+        history: history.size,
+        alternate: history.alternate,
+      })
     } catch (err) {
       console.error(`[scrollback] ${(err as Error)?.message ?? err}`)
     }

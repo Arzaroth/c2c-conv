@@ -243,7 +243,9 @@ type ServerMessage =
   // A snapshot of the pane with its scrollback, asked for and answered once.
   // Never the live surface: the mirror positions the cursor relative to a fixed
   // grid, so anything that scrolls has to be somewhere else entirely.
-  | { type: 'scrollback'; data: string; cols: number; rows: number; lines: number }
+  // history says how much of this is above the fold, so a receiver can tell a
+  // snapshot worth scrolling from one that is only ever the pane again.
+  | { type: 'scrollback'; data: string; cols: number; rows: number; lines: number; history: number; alternate: boolean }
   | { type: 'notice'; text: string }
   | { type: 'bye'; text: string }
   | { type: 'transcript'; entry: TranscriptEntry }
