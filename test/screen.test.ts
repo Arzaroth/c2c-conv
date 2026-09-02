@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { classifyScreen, readPromptBox } from '../src/tmux.js'
+import { boxHolds, classifyScreen, readPromptBox } from '../src/tmux.js'
 
 const RULE = '─'.repeat(200)
 
@@ -163,4 +163,36 @@ test('a short turn echoed just above the input box does not hide the box', () =>
   )
   assert.equal(classifyScreen(shortTurn), 'prompt')
   assert.equal(readPromptBox(shortTurn), '')
+})
+
+// Telling a submit that landed from one that only typed. Getting this wrong in
+// the permissive direction sends the host's own draft; in the strict direction
+// it gives up on a message that one more Enter would have delivered.
+test('a box holding the message that was typed into it is recognised', () => {
+  assert.equal(boxHolds('deploy the thing please', 'deploy the thing please'), true)
+})
+
+test('an empty box is not holding anything', () => {
+  assert.equal(boxHolds('', 'deploy the thing please'), false)
+  assert.equal(boxHolds(null, 'deploy the thing please'), false)
+})
+
+// The box wraps at the pane width and breaks words wherever it runs out.
+test('wrapping the text across lines does not hide it', () => {
+  const wrapped = 'deploy the thi\nng please, and t\nell me when it i\ns done'
+  assert.equal(boxHolds(wrapped, 'deploy the thing please, and tell me when it is done'), true)
+})
+
+test('somebody else\'s draft is not mistaken for ours', () => {
+  assert.equal(boxHolds('wait, do not run that', 'deploy the thing please'), false)
+})
+
+// Our text with the host's own words typed in front of it is the host's line
+// now, and pressing Enter on it would send something nobody wrote.
+test('our text further down a longer draft is not ours to send', () => {
+  assert.equal(boxHolds('no: deploy the thing please', 'deploy the thing please'), false)
+})
+
+test('an empty message never matches', () => {
+  assert.equal(boxHolds('anything at all', '   '), false)
 })

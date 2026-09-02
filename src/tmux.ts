@@ -246,6 +246,18 @@ export async function paneState(name: string): Promise<PaneState> {
 // screen, which is not the same as it being empty. This is the one read that
 // keeps its escapes: a suggestion and a draft are the same characters in
 // different colours, and stripping them first would lose the difference.
+// Whether the input box is still holding the message that was just typed into
+// it, which is how a submit that did not submit is told from one that did. The
+// box wraps at the pane width and will break a word anywhere, so the comparison
+// takes the whitespace out rather than going line by line, and only asks about
+// the head of the text: claude reflows and decorates the rest.
+export function boxHolds(box: string | null, text: string): boolean {
+  const bare = (value: string) => value.replace(/\s+/g, '')
+  const wanted = bare(text).slice(0, 40)
+  if (!box || !wanted) return false
+  return bare(box).startsWith(wanted)
+}
+
 export async function promptDraft(name: string): Promise<string | null> {
   return readPromptBox(await capturePane(name))
 }
