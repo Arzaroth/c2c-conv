@@ -1,0 +1,36 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # Installed rather than assumed. test/tmux.integration.test.ts drives a
+      # real tmux server, and its `available` guard does not work: `skip` is
+      # read when the test is declared, which is before the async before() hook
+      # can clear the flag. So a runner without tmux fails 11 tests rather than
+      # skipping them, and relying on the image to ship it would make CI depend
+      # on something nobody declared.
+      - name: install tmux
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends tmux
+
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+
+      - name: types
+        run: pnpm check
+
+      # `pnpm test` builds first, so this covers the compile and the bundle too.
+      # Every bug in this project that cost real time lived in the tmux
+      # integration, and none of it is reachable from a unit test.
+      - name: tests
+        run: pnpm test
