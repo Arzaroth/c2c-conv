@@ -23,6 +23,14 @@ open-work list of its own, so there is one of it rather than two.
       is absent rather than skipping. That is 9 red tests on any machine that
       does not have it, which is every CI runner by default.
 
+- [ ] Mode aliases are listed twice: `ALIASES` in `src/policy.ts` and
+      `MODE_ALIASES` in `src/cli.ts`. One list, imported by the CLI.
+- [ ] `resolveCloudflared`'s comment in `src/tunnel.ts` says anything on PATH
+      wins; the code checks `node_modules/.bin` and `~/.cloudflared/bin` first.
+      Decide which is meant and make the other agree.
+- [ ] `deploy/README.md` installs and rebuilds with `npm ci`, which fails: the
+      repo has a `pnpm-lock.yaml` and no `package-lock.json`.
+
 ## Add CI
 
 **S.** Add a workflow that installs tmux and runs the whole suite, integration
