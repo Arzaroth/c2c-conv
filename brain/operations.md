@@ -59,8 +59,7 @@ checkout**, everything additive is a patch (see
 [decisions.md](decisions.md#0013-pre-10-a-minor-means-a-checkout-breaks)). A
 release is a `[master] chore(release): x.y.z` commit whose body explains the bump
 in prose, plus an annotated `vX.Y.Z` tag whose message, since 0.3.1, is
-`c2c-conv x.y.z - <theme>`. The 0.3.2 release commit was never tagged. The
-project's `release` skill walks it.
+`c2c-conv x.y.z - <theme>`. The project's `release` skill walks it.
 
 ## Deploying a bigtop
 

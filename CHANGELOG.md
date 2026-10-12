@@ -44,8 +44,17 @@ than adding to it.
   in the gallery, which in a gallery is the only thing that can act.
 - `c2c ctl status` lists each bozo with its mode, whether it was trusted
   personally, whether it holds the whiteface and whether it is idle.
-- The old mode spellings (`ring`, `spectator`) are resolved in one place now, so
-  they work wherever a mode is named, `trust` included.
+- The old mode spellings (`ring`, `spectator`) work wherever a mode is named,
+  `trust` included.
+- The design docs moved from `docs/` into `brain/`, a knowledge base with an
+  index, one doc per subsystem and feature, a glossary and numbered decisions.
+  Start at `brain/BRAIN.md`; anything linking to `docs/*.md` will not find it.
+
+### Fixed
+
+- Claude Code's dim suggested prompt in an empty input box no longer reads as
+  the host's unsent draft. It is repainted after every turn, so every queued
+  message used to pile up behind a line nobody typed until somebody cleared it.
 
 ## [0.3.2] - 2026-09-02
 

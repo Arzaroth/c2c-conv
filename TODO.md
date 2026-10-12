@@ -1,13 +1,14 @@
 # TODO
 
 What is left, and why each thing is worth doing. Grounded in the code as it
-stands at v0.3.2: the architecture is finished for what it does, so almost
+stands at v0.3.3: the architecture is finished for what it does, so almost
 nothing here is plumbing.
 
-Done since v0.3.2: per-bozo trust, so one person can be let into the ring
-without the other twenty-nine coming with them, and the circus - a roster with
+Done in v0.3.3: per-bozo trust, so one person can be let into the ring
+without the other twenty-nine coming with them; the circus - a roster with
 presence, which is also what `kick` and `trust` needed before they could be
-whiteface commands.
+whiteface commands; and CI, which installs tmux and runs the whole suite on
+every push.
 
 How the code works is in [brain/BRAIN.md](brain/BRAIN.md). It keeps no
 open-work list of its own, so there is one of it rather than two.
@@ -20,7 +21,7 @@ open-work list of its own, so there is one of it rather than two.
       The URL parser makes it hard to reach today, which is not the same as it
       being right. One helper, both transports.
 - [ ] `test/tmux.integration.test.ts` fails with `spawn tmux ENOENT` when tmux
-      is absent rather than skipping. That is 9 red tests on any machine that
+      is absent rather than skipping. That is 11 red tests on any machine that
       does not have it, which is every CI runner by default.
 
 - [ ] Mode aliases are listed twice: `ALIASES` in `src/policy.ts` and
@@ -30,19 +31,6 @@ open-work list of its own, so there is one of it rather than two.
       Decide which is meant and make the other agree.
 - [ ] `deploy/README.md` installs and rebuilds with `npm ci`, which fails: the
       repo has a `pnpm-lock.yaml` and no `package-lock.json`.
-
-## Add CI
-
-**S.** Add a workflow that installs tmux and runs the whole suite, integration
-tests included.
-
-*Why.* Nothing runs the integration tests anywhere but a developer's machine
-with tmux on it. The Dockerfile is already a working CI substrate: it has node,
-tmux and claude in it. (The other half of this item, xterm from a CDN, is done:
-vite bundles it into `dist/web`.)
-
-*Touches:* `test/tmux.integration.test.ts`, new `.github/workflows/`,
-`Dockerfile`.
 
 ## Attribution and an audit log
 
@@ -114,8 +102,7 @@ currently discards history rather than rolling it.
 
 By value against effort:
 
-1. Add CI - the integration tests run nowhere automatic
-2. Attribution and an audit log - closes the hole the security model opens
-3. `c2c resume`
-4. `--cols` / `--rows`
-5. Replay
+1. Attribution and an audit log - closes the hole the security model opens
+2. `c2c resume`
+3. `--cols` / `--rows`
+4. Replay
