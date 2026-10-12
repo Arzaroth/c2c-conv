@@ -9,6 +9,8 @@ than adding to it.
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-10-12
+
 ### Added
 
 - **Per-bozo trust.** `c2c ctl trust <who> yolo|gallery|default` elevates one
