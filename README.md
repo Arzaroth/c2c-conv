@@ -7,7 +7,7 @@ you let them, they talk to it as if they were you.
 
 Not a screen share. Bozo messages land in the session as genuine typed input:
 `origin: {kind: "human"}`, `promptSource: "typed"`, no wrapper, no tag. Claude
-cannot tell the difference. See [docs/FEASIBILITY.md](docs/FEASIBILITY.md) for
+cannot tell the difference. See [brain/decisions.md](brain/decisions.md#0001-keystroke-injection-into-a-pty) for
 how that was verified.
 
 ## The names
@@ -129,7 +129,7 @@ reach the other. Run one anywhere with `c2c bigtop`, or
 `node dist/bigtop/server.js --port 8080`. Your bozo opens
 `https://bigtop.example.com/r/standup?t=<token>` and installs nothing.
 
-Details and wire protocol in [docs/TRANSPORTS.md](docs/TRANSPORTS.md).
+Details and wire protocol in [brain/architecture/transports.md](brain/architecture/transports.md).
 
 ## The two modes
 
@@ -462,4 +462,5 @@ both are loud on every surface.
 ## Status
 
 v0. Works end to end. What is left, and why each thing is worth doing, is in
-[TODO.md](TODO.md).
+[TODO.md](TODO.md). How it works, and why it is built the way it is, is in
+[brain/BRAIN.md](brain/BRAIN.md).

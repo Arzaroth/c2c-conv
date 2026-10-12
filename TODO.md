@@ -9,17 +9,14 @@ without the other twenty-nine coming with them, and the circus - a roster with
 presence, which is also what `kick` and `trust` needed before they could be
 whiteface commands.
 
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#open-work) used to carry a short
-open-work list of its own. It points here now, so there is one of it rather than
-two.
+How the code works is in [brain/BRAIN.md](brain/BRAIN.md). It keeps no
+open-work list of its own, so there is one of it rather than two.
 
 ## Drift and small fixes
 
-- [ ] `docs/TRANSPORTS.md` says 16 bozos per room, twice. `MAX_BOZOS` in
-      `src/policy.ts` is 30, and the bigtop imports it.
 - [ ] `resolvePublic()` lives in `bigtop/server.ts` and is exported, but
       `src/transport/local.ts` still strips `../` prefixes - the approach
-      TRANSPORTS.md itself calls guesswork next to containment being provable.
+      the brain's transports doc calls guesswork next to containment being provable.
       The URL parser makes it hard to reach today, which is not the same as it
       being right. One helper, both transports.
 - [ ] `test/tmux.integration.test.ts` fails with `spawn tmux ENOENT` when tmux
