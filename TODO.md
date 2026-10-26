@@ -1,14 +1,15 @@
 # TODO
 
 What is left, and why each thing is worth doing. Grounded in the code as it
-stands at v0.3.3: the architecture is finished for what it does, so almost
+stands at v0.3.4: the architecture is finished for what it does, so almost
 nothing here is plumbing.
 
-Done in v0.3.3: per-bozo trust, so one person can be let into the ring
-without the other twenty-nine coming with them; the circus - a roster with
-presence, which is also what `kick` and `trust` needed before they could be
-whiteface commands; and CI, which installs tmux and runs the whole suite on
-every push.
+Done in v0.3.4: a dialog hint left in the transcript above the input box no
+longer wedges the outbox. Done in v0.3.3: per-bozo trust, so one person can be
+let into the ring without the other twenty-nine coming with them; the circus -
+a roster with presence, which is also what `kick` and `trust` needed before
+they could be whiteface commands; and CI, which installs tmux and runs the
+whole suite on every push.
 
 How the code works is in [brain/BRAIN.md](brain/BRAIN.md). It keeps no
 open-work list of its own, so there is one of it rather than two.

@@ -9,6 +9,15 @@ than adding to it.
 
 ## [Unreleased]
 
+### Fixed
+
+- A dialog hint left in the transcript no longer reads as a dialog. When a
+  usage-limit countdown was cancelled, its `esc to cancel` line stayed on screen
+  above an empty input box, the pane read as a dialog for as long as the line
+  was visible, and every queued message waited behind it with nothing able to
+  push the line off. The hint now counts only from the input box down, where a
+  real dialog draws it.
+
 ## [0.3.3] - 2026-10-12
 
 ### Added
