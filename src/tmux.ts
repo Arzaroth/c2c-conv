@@ -188,11 +188,16 @@ export function readPromptBox(screen: string): string | null {
 
 // Injecting text while a modal is up types into nothing and the trailing Enter
 // confirms whatever option is highlighted, so every write path has to check
-// this first.
+// this first. A dialog's hint is drawn from the input box down, or in place of
+// it; above the box it is transcript, like the "esc to cancel" a usage-limit
+// countdown leaves behind, and reading it wedged the outbox for good.
 export function classifyScreen(screen: string): Extract<PaneState, 'dialog' | 'busy' | 'prompt' | 'unknown'> {
-  if (DIALOG.some((re) => re.test(screen))) return 'dialog'
+  const lines = screen.split('\n').map(unpaint)
+  const box = promptBoxLine(lines)
+  const modal = box === -1 ? screen : lines.slice(box - 1).join('\n')
+  if (DIALOG.some((re) => re.test(modal))) return 'dialog'
   if (BUSY.some((re) => re.test(screen))) return 'busy'
-  if (readPromptBox(screen) !== null) return 'prompt'
+  if (box !== -1) return 'prompt'
   return 'unknown'
 }
 
