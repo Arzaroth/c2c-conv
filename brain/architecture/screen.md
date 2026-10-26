@@ -12,7 +12,7 @@ Pane state and the host's draft both come from parsing a `capture-pane`.
 |---|---|
 | `dead` | `paneAlive` is false |
 | `copy-mode` | `#{pane_in_mode}` is set: text would be read as copy-mode commands |
-| `dialog` | `Enter to confirm` or `Esc to cancel / reject / go back` on screen |
+| `dialog` | `Enter to confirm` or `Esc to cancel / reject / go back` from the input box's top rule down, or anywhere when no box is drawn. Above the box it is transcript: a cancelled usage-limit countdown leaves `esc to cancel` there and once wedged the outbox |
 | `busy` | `esc to interrupt` on screen: a turn is running |
 | `prompt` | `readPromptBox` finds an input box |
 | `unknown` | none of the above |
