@@ -9,6 +9,8 @@ than adding to it.
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-10-26
+
 ### Fixed
 
 - A dialog hint left in the transcript no longer reads as a dialog. When a
