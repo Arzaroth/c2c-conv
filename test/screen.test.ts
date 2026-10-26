@@ -128,3 +128,22 @@ test('a dialog is still a dialog when a prompt box is also drawn', () => {
   const both = screen(RULE, '❯ ', RULE, '  Enter to confirm · Esc to cancel')
   assert.equal(classifyScreen(both), 'dialog')
 })
+
+test('a dialog hint left in the transcript above the input box is not a dialog', () => {
+  const cancelled = screen(
+    '● Usage limit reached · continuing automatically at 2pm · esc to cancel',
+    '',
+    '✻ Sautéed for 0s · done 6:54 PM',
+    '',
+    '● Automatic continue cancelled · /rate-limit-options to re-arm',
+    RULE,
+    '❯ ',
+    RULE,
+    '  ⏵⏵ auto mode on (shift+tab to cycle)'
+  )
+  assert.equal(classifyScreen(cancelled), 'prompt')
+})
+
+test('a dialog hint with no input box drawn is still a dialog', () => {
+  assert.equal(classifyScreen(screen('● Usage limit reached · esc to cancel', '', '  waiting')), 'dialog')
+})
