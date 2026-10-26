@@ -171,12 +171,19 @@ function unpaint(line: string): string {
 // the box's top rule. Prompt markers in the scrollback are the echo of previous
 // turns and have no rule above them, so scanning for a bare marker would read
 // the last submitted message back as if it were an unsent draft.
+function promptBoxLine(lines: string[]): number {
+  const from = Math.max(0, lines.length - 8)
+  const index = lines.findIndex((line, i) => i >= from && /^\s*❯/.test(line))
+  if (index <= from || !/^\s*─{20,}/.test(lines[index - 1])) return -1
+  return index
+}
+
 // Returns null when there is no input box on screen at all.
 export function readPromptBox(screen: string): string | null {
-  const tail = screen.split('\n').map(unpaint).slice(-8)
-  const index = tail.findIndex((line) => /^\s*❯/.test(line))
-  if (index <= 0 || !/^\s*─{20,}/.test(tail[index - 1])) return null
-  return tail[index].replace(/^\s*❯\s?/, '').trim()
+  const lines = screen.split('\n').map(unpaint)
+  const index = promptBoxLine(lines)
+  if (index === -1) return null
+  return lines[index].replace(/^\s*❯\s?/, '').trim()
 }
 
 // Injecting text while a modal is up types into nothing and the trailing Enter
