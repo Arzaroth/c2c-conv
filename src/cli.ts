@@ -2,7 +2,7 @@
 import { execFileSync, spawn } from 'node:child_process'
 import { connect, createServer } from 'node:net'
 import { hostname, networkInterfaces, type NetworkInterfaceInfo } from 'node:os'
-import { readFile } from 'node:fs/promises'
+import { readFile, unlink } from 'node:fs/promises'
 import { openSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join, resolve } from 'node:path'
@@ -12,7 +12,8 @@ import * as tmux from './tmux.js'
 import { Ringmaster } from './ringmaster.js'
 import { GALLERY, YOLO } from './policy.js'
 import { OUTBOX_MODES } from './outbox.js'
-import { controlSocket, ensureStateDir, metaFile, stateDir, statusFile } from './paths.js'
+import { controlSocket, ensureStateDir, metaFile, snapshotFile, stateDir, statusFile } from './paths.js'
+import { isTunnelFor } from './tunnel.js'
 import { version, versionReport } from './version.js'
 
 const SELF = fileURLToPath(import.meta.url)
@@ -77,6 +78,33 @@ async function readMeta(session: string): Promise<SessionMeta | null> {
   } catch {
     return null
   }
+}
+
+async function readSnapshot(session: string): Promise<SessionSnapshot | null> {
+  try {
+    const snapshot = JSON.parse(await readFile(snapshotFile(session), 'utf8'))
+    return snapshot?.version === 1 && typeof snapshot.token === 'string' ? snapshot : null
+  } catch {
+    return null
+  }
+}
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function waitForExit(pid: number, ms: number): Promise<boolean> {
+  const deadline = Date.now() + ms
+  while (alive(pid)) {
+    if (Date.now() > deadline) return false
+    await new Promise((r) => setTimeout(r, 100))
+  }
+  return true
 }
 
 function control(session: string, message: ControlRequest): Promise<ControlReply> {
@@ -318,6 +346,76 @@ function printInvite(meta: InviteInfo, opts?: Options): void {
   console.log('')
 }
 
+// A new ringmaster for a tmux session that is still running: after a hotfix,
+// or after the last one crashed. Everything a bozo holds keeps working - the
+// links, the whiteface link, the tunnel URL - and the f2f lane, the held queue
+// and the outbox come back where they were.
+async function cmdRestart({ opts }: { opts: Options }): Promise<void> {
+  const { session } = opts
+  if (!(await tmux.hasSession(session))) {
+    console.error(`no session "${session}" to restart - c2c host starts one`)
+    process.exit(1)
+  }
+
+  const before = await readMeta(session)
+  if (before && alive(before.pid)) {
+    const asked = await Promise.race([
+      control(session, { cmd: 'handover' }).catch(() => null),
+      new Promise<null>((r) => setTimeout(() => r(null), 5000)),
+    ])
+    // A ringmaster that will not answer is the one being hotfixed. Killed
+    // outright, not SIGTERMed: a clean stop would take the tunnel and the
+    // snapshot down with it.
+    if (!asked || !(await waitForExit(before.pid, 15000))) {
+      console.error(`the ringmaster (pid ${before.pid}) did not hand over, killing it`)
+      try {
+        process.kill(before.pid, 'SIGKILL')
+      } catch {}
+      await waitForExit(before.pid, 5000)
+    }
+  }
+
+  const snapshot = await readSnapshot(session)
+  if (!snapshot) {
+    console.error(`nothing saved for "${session}" to restart from - c2c stop, then c2c host`)
+    process.exit(1)
+  }
+  for (const path of [metaFile(session), controlSocket(session)]) {
+    try {
+      await unlink(path)
+    } catch {}
+  }
+
+  const dir = await ensureStateDir(session)
+  spawnRingmaster(dir, { C2C_SESSION: session, C2C_RESUME: '1' })
+  const meta = await waitForRingmaster(session)
+  if (!meta) {
+    console.error(`ringmaster failed to restart - see ${join(dir, 'ringmaster.log')}`)
+    process.exit(1)
+  }
+  const ready = (snapshot.tunnel.wanted ? await waitForTunnel(session) : meta) ?? meta
+
+  console.log(`c2c-conv ${version()} - session "${session}" has a new ringmaster`)
+  console.log('')
+  if (snapshot.tunnel.wanted && ready.tunnel?.split('/?')[0] !== snapshot.tunnel.url) {
+    console.log('  note: the old tunnel was gone, so this one has a new URL.')
+    console.log('        anyone on the old link needs the new one.')
+    console.log('')
+  }
+  printInvite(ready, { ...opts, host: snapshot.bind })
+  if (ready.whitefaceUrl) {
+    console.log(`  whiteface   ${ready.whitefaceUrl}`)
+    console.log('')
+  }
+  const kept = [
+    snapshot.f2f.length && `${snapshot.f2f.length} f2f lines`,
+    snapshot.pending.length && `${snapshot.pending.length} held`,
+    snapshot.outbox.length && `${snapshot.outbox.length} in the outbox`,
+  ].filter(Boolean)
+  console.log(`  kept        mode ${snapshot.mode}${kept.length ? ', ' + kept.join(', ') : ''}`)
+  console.log('  trust is per connection, so anyone trusted personally is back on the room default.')
+}
+
 async function cmdInvite({ opts }: { opts: Options }): Promise<void> {
   const meta = await readMeta(opts.session)
   if (!meta) {
@@ -345,10 +443,11 @@ async function cmdZavatta({ opts }: { opts: Options }): Promise<void> {
 
   const link = new BozoLink({ url, name: opts.name ?? 'zavatta' })
   // stdout is the MCP transport, so anything chatty has to go to stderr.
-  link.on('closed', () => {
+  link.on('ended', () => {
     console.error('[c2c] the session ended')
     process.exit(0)
   })
+  link.on('reconnected', () => console.error('[c2c] back in the session'))
 
   try {
     await link.connect()
@@ -407,7 +506,19 @@ function shellQuote(value: string): string {
 async function cmdRingmaster(): Promise<void> {
   const session = process.env.C2C_SESSION ?? 'c2c'
   const bigtopUrl = process.env.C2C_BIGTOP_URL
-  const ringmaster = new Ringmaster({
+  const resumed = process.env.C2C_RESUME === '1' ? await readSnapshot(session) : null
+  const ringmaster = resumed ? new Ringmaster({
+    session,
+    port: resumed.port,
+    host: resumed.bind,
+    token: resumed.token,
+    bigtop: resumed.bigtop,
+    tunnel: resumed.tunnel.wanted,
+    mode: resumed.mode,
+    whiteface: resumed.whiteface ?? undefined,
+    outboxMode: resumed.outboxMode,
+    restore: resumed,
+  }) : new Ringmaster({
     session,
     port: Number(process.env.C2C_PORT),
     host: process.env.C2C_BIND,
@@ -603,6 +714,17 @@ async function cmdStop({ opts }: { opts: Options }): Promise<void> {
   try {
     await control(opts.session, { cmd: 'stop' })
   } catch {}
+  // A ringmaster that died without stopping leaves its cloudflared running,
+  // still a public URL, and a snapshot c2c restart would bring back.
+  const left = await readSnapshot(opts.session)
+  if (left?.tunnel.pid && isTunnelFor(left.tunnel.pid, left.port)) {
+    try {
+      process.kill(left.tunnel.pid)
+    } catch {}
+  }
+  try {
+    await unlink(snapshotFile(opts.session))
+  } catch {}
   await tmux.killSession(opts.session)
   console.log(`stopped "${opts.session}"`)
 }
@@ -620,6 +742,7 @@ usage:
   c2c ctl <status|who|list|mode gallery|mode yolo|trust WHO gallery|yolo|default
            |approve ID|deny ID|approve-all|deny-all
            |outbox|cancel ID|cancel-all|bump ID|say TEXT|kick ID|rotate>
+  c2c restart [-s NAME]  a new ringmaster for a running session, same links
   c2c stop [-s NAME]
   c2c version | --version
   c2c bigtop [-p PORT] [--bind ADDR]
@@ -679,6 +802,10 @@ try {
     case 'bigtop':
     case 'broker':
       await cmdBigtop({ opts })
+      break
+    case 'restart':
+    case 'resume':
+      await cmdRestart({ opts })
       break
     case 'stop':
       await cmdStop({ opts })
