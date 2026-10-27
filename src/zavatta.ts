@@ -28,6 +28,30 @@ export interface WaitResult {
 export const WAIT_MS = 60_000
 export const MAX_WAIT_MS = 300_000
 
+export const HISTORY_PAGE = 20
+export const SCROLLBACK_LINES = 500
+
+// Turns are numbered from the oldest the ringmaster still holds, so before=N
+// pages back from a page that has already been read.
+export function historyPage(
+  turns: TranscriptEntry[],
+  { limit, before }: { limit?: unknown; before?: unknown } = {},
+): string {
+  if (!turns.length) return '(nothing in the conversation yet)'
+  const size = Number(limit) > 0 ? Math.trunc(Number(limit)) : HISTORY_PAGE
+  const end = Number(before) > 0 ? Math.min(Math.trunc(Number(before)) - 1, turns.length) : turns.length
+  if (end <= 0) return `(nothing before turn 1: ${turns.length} turns in all)`
+  const start = Math.max(0, end - size)
+
+  const page = turns.slice(start, end).map((turn, index) => {
+    const who = turn.role === 'user' ? 'typed' : 'claude'
+    const tools = turn.tools?.length ? `\n  [tools: ${turn.tools.join(', ')}]` : ''
+    return `#${start + index + 1} ${who}: ${turn.text}${tools}`
+  })
+  const older = start > 0 ? ` Older turns: before=${start + 1}.` : ''
+  return [`turns ${start + 1}-${end} of ${turns.length}.${older}`, ...page].join('\n\n')
+}
+
 // The two halves of a wait in one place: what the link already looks like, and
 // what a message did to it. A null message is the check made before anything
 // has arrived, so a session that is already free answers at once rather than
@@ -175,6 +199,13 @@ export class BozoLink extends EventEmitter {
     })
   }
 
+  async scrollback(lines: number): Promise<string> {
+    const settled = this.#await(['scrollback'])
+    this.#send({ type: 'scrollback', lines })
+    const answer = await settled
+    return answer.type === 'scrollback' ? stripAnsi(answer.data).replace(/[ \t]+$/gm, '') : ''
+  }
+
   async refresh(): Promise<string> {
     const settled = this.#await(['screen'])
     this.#send({ type: 'refresh' })
@@ -246,16 +277,30 @@ const TOOLS = [
   {
     name: 'c2c_screen',
     description:
-      'The shared Claude Code session as it looks right now, as plain text. Fetches a fresh snapshot.',
+      'The shared Claude Code session as it looks right now, as plain text: only what fits on screen. c2c_scrollback has what scrolled off it.',
     inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'c2c_scrollback',
+    description:
+      'The session screen plus what scrolled off the top of it, as plain text: tool output, diffs, errors. The terminal-side view; c2c_history is the readable conversation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        lines: { type: 'number', description: `Lines above the screen to include (default ${SCROLLBACK_LINES}, max 10000)` },
+      },
+    },
   },
   {
     name: 'c2c_history',
     description:
-      'The conversation in the shared session so far: who said what, and which tools were used. Covers turns from before you joined.',
+      'The conversation in the shared session so far: who said what, and which tools were used. Covers turns from before you joined. Turns are numbered; pass before to page further back.',
     inputSchema: {
       type: 'object',
-      properties: { limit: { type: 'number', description: 'Most recent N turns (default 20)' } },
+      properties: {
+        limit: { type: 'number', description: `How many turns (default ${HISTORY_PAGE})` },
+        before: { type: 'number', description: 'Only turns numbered below this one (default: up to the latest)' },
+      },
     },
   },
   {
@@ -338,6 +383,8 @@ const TOOLS = [
 interface ToolArgs {
   text?: string
   limit?: number
+  before?: number
+  lines?: number
   key?: string
   for?: string
   seconds?: number
@@ -421,18 +468,12 @@ export class McpServer {
       return (await link.refresh()) || '(the session screen is empty)'
     }
 
-    if (name === 'c2c_history') {
-      const limit = Number(args.limit) > 0 ? Number(args.limit) : 20
-      const turns = link.history.slice(-limit)
-      if (!turns.length) return '(nothing in the conversation yet)'
-      return turns
-        .map((turn) => {
-          const who = turn.role === 'user' ? 'typed' : 'claude'
-          const tools = turn.tools?.length ? `\n  [tools: ${turn.tools.join(', ')}]` : ''
-          return `${who}: ${turn.text}${tools}`
-        })
-        .join('\n\n')
+    if (name === 'c2c_scrollback') {
+      const lines = Number(args.lines) > 0 ? Number(args.lines) : SCROLLBACK_LINES
+      return (await link.scrollback(lines)) || '(the session screen is empty)'
     }
+
+    if (name === 'c2c_history') return historyPage(link.history, args)
 
     if (name === 'c2c_status') {
       const waiting = link.outbox.length
