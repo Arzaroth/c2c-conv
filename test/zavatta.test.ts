@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { BozoLink, stripAnsi, wakes } from '../src/zavatta.js'
+import { BozoLink, HISTORY_PAGE, historyPage, stripAnsi, wakes } from '../src/zavatta.js'
 
 test('screen text reaches an agent without escape sequences', () => {
   const raw = '\x1b[1m\x1b[38;5;220mClaude Code\x1b[39m\x1b[22m v2.1.251'
@@ -85,4 +85,27 @@ test('a dropped connection ends a wait instead of hanging it to the timeout', as
   const settled = agent.wait({ for: 'idle', timeoutMs: 60000 })
   agent.emit('closed')
   await assert.rejects(settled, /closed while waiting/)
+})
+
+const turns = (n: number): TranscriptEntry[] =>
+  Array.from({ length: n }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', text: `turn ${i + 1}` }))
+
+test('history says how much there is and where the older turns start', () => {
+  const page = historyPage(turns(50))
+  assert.match(page, new RegExp(`^turns ${50 - HISTORY_PAGE + 1}-50 of 50\\. Older turns: before=${50 - HISTORY_PAGE + 1}\\.`))
+  assert.match(page, /#50 claude: turn 50$/)
+  assert.doesNotMatch(page, /#30 /)
+})
+
+test('before pages back from a page already read', () => {
+  const page = historyPage(turns(50), { limit: 5, before: 11 })
+  assert.match(page, /^turns 6-10 of 50\. Older turns: before=6\./)
+  assert.match(page, /#6 claude: turn 6/)
+  assert.doesNotMatch(page, /#11 /)
+})
+
+test('the first page says there is nothing older', () => {
+  assert.match(historyPage(turns(3), { limit: 10 }), /^turns 1-3 of 3\.\n/)
+  assert.match(historyPage(turns(3), { before: 1 }), /nothing before turn 1/)
+  assert.equal(historyPage([]), '(nothing in the conversation yet)')
 })
