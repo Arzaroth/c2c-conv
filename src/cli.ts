@@ -147,26 +147,18 @@ async function cmdHost({ opts, passthrough }: { opts: Options; passthrough: stri
   // Detached sessions have nobody at the prefix keys, so the host needs a way
   // to hold the gate from the browser instead.
   const whiteface = opts.attach ? '' : randomBytes(16).toString('hex')
-  const log = openSync(join(dir, 'ringmaster.log'), 'a')
-
-  const child = spawn(process.execPath, [SELF, '__ringmaster'], {
-    detached: true,
-    stdio: ['ignore', log, log],
-    env: {
-      ...process.env,
-      C2C_SESSION: opts.session,
-      C2C_PORT: String(opts.port),
-      C2C_BIND: opts.host,
-      C2C_TOKEN: token,
-      C2C_BIGTOP_URL: opts.bigtop ?? '',
-      C2C_BIGTOP_ROOM: opts.room ?? opts.session,
-      C2C_TUNNEL: opts.tunnel ? '1' : '',
-      C2C_MODE: opts.mode ?? '',
-      C2C_WHITEFACE: whiteface,
-      C2C_OUTBOX: opts.outbox ?? '',
-    },
+  spawnRingmaster(dir, {
+    C2C_SESSION: opts.session,
+    C2C_PORT: String(opts.port),
+    C2C_BIND: opts.host,
+    C2C_TOKEN: token,
+    C2C_BIGTOP_URL: opts.bigtop ?? '',
+    C2C_BIGTOP_ROOM: opts.room ?? opts.session,
+    C2C_TUNNEL: opts.tunnel ? '1' : '',
+    C2C_MODE: opts.mode ?? '',
+    C2C_WHITEFACE: whiteface,
+    C2C_OUTBOX: opts.outbox ?? '',
   })
-  child.unref()
 
   const meta = await waitForRingmaster(opts.session)
   if (!meta) {
@@ -239,6 +231,16 @@ async function cmdHost({ opts, passthrough }: { opts: Options; passthrough: stri
   } else {
     console.log(`attach with: c2c attach -s ${opts.session}`)
   }
+}
+
+function spawnRingmaster(dir: string, env: Record<string, string>): void {
+  const log = openSync(join(dir, 'ringmaster.log'), 'a')
+  const child = spawn(process.execPath, [SELF, '__ringmaster'], {
+    detached: true,
+    stdio: ['ignore', log, log],
+    env: { ...process.env, ...env },
+  })
+  child.unref()
 }
 
 function portFree(port: number, host: string): Promise<boolean> {
