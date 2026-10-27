@@ -1,14 +1,15 @@
 # TODO
 
 What is left, and why each thing is worth doing. Grounded in the code as it
-stands at v0.3.4: the architecture is finished for what it does, so almost
+stands at v0.3.5: the architecture is finished for what it does, so almost
 nothing here is plumbing.
 
-Done since v0.3.4: the ledger and `c2c log`, a SQLite record of the lane, the
-gate and the outbox kept after stop; `c2c restart`, a new ringmaster for a running session with
-the links, the tunnel, the lane and both queues kept; zavatta's
-`c2c_scrollback` and paged `c2c_history`. Done in v0.3.4: a dialog hint left in the transcript above the input box no
-longer wedges the outbox. Done in v0.3.3: per-bozo trust, so one person can be
+Done in v0.3.5: the ledger and `c2c log`, a SQLite record of the lane, the gate
+and the outbox kept after stop; `c2c restart`, a new ringmaster for a running
+session with the links, the tunnel, the lane and both queues kept; zavatta's
+`c2c_scrollback` and paged `c2c_history`; a one-line answer no longer hides the
+input box. Done in v0.3.4: a dialog hint left in the transcript above the input
+box no longer wedges the outbox. Done in v0.3.3: per-bozo trust, so one person can be
 let into the ring without the other twenty-nine coming with them; the circus -
 a roster with presence, which is also what `kick` and `trust` needed before
 they could be whiteface commands; and CI, which installs tmux and runs the

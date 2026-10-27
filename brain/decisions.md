@@ -98,8 +98,9 @@ became worth it.
   QUIC, so there is no pure-JS alternative. c2c takes no dependency on it and
   recommends a distribution package, but resolves `$C2C_CLOUDFLARED`, then a
   local npm copy, then `~/.cloudflared/bin`, and only then PATH.
-- **The tunnel dies with the ringmaster.** A public URL that outlives the session
-  it shared is a hole.
+- **The tunnel dies with the session.** A public URL that outlives the session
+  it shared is a hole. A restart is the exception, handing it to the next
+  ringmaster (0014); `c2c stop` kills it even when the ringmaster crashed.
 
 ### 0007 No runtime dependencies
 
@@ -124,7 +125,7 @@ With 30 seats, a room-wide switch elevates twenty-nine people to let one in.
 Overrides key on the connection id rather than the name, because two bozos can
 share a name and a name is theirs to pick. So trust does not survive a reconnect,
 which is the fail-safe direction. A pin to `gallery` is worth as much as one to
-`yolo`. Not persisted by a future `c2c resume` either, for the same reason.
+`yolo`. Not carried over by `c2c restart` either, for the same reason (0014).
 
 ### 0010 Zavatta has no host tools
 

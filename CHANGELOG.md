@@ -35,7 +35,19 @@ than adding to it.
   a restart can hand it on. `c2c stop` kills one a crashed ringmaster left
   running.
 - Zavatta reconnects when the ringmaster goes away and comes back, and exits
-  only when the session says goodbye.
+  only when the session says goodbye. It used to exit on any dropped socket,
+  which took the agent's tools away for the rest of its run.
+- `c2c_history`'s answer opens with a `turns N-M of T` line and numbers each
+  turn (`#12 typed: ...`). Anything reading the old bare `typed:` / `claude:`
+  lines will find the number in front.
+
+### Fixed
+
+- A one-line answer no longer hides the input box. After `/model`, its echo sat
+  close enough to the bottom of the screen to be taken for the box, the pane
+  read as neither idle nor busy, and every queued message waited with `the
+  session is not at a prompt` until something else scrolled the echo away. The
+  box is now the lowest prompt marker on screen.
 
 ## [0.3.4] - 2026-10-26
 
