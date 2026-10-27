@@ -14,6 +14,6 @@ on.
 | [whiteface.md](whiteface.md) | Headless sessions run from a browser with a second link. |
 | [history.md](history.md) | The conversation so far, from the transcript JSONL. |
 | [scrollback.md](scrollback.md) | A snapshot of the pane and its history. |
-| [zavatta.md](zavatta.md) | An agent as a bozo over MCP: the eight tools, `c2c_wait`. |
+| [zavatta.md](zavatta.md) | An agent as a bozo over MCP: the nine tools, `c2c_wait`, paged history. |
 | [kick-and-rotate.md](kick-and-rotate.md) | Showing one bozo out; killing every link. |
 | [container.md](container.md) | The Docker image and `compose.yaml`. |

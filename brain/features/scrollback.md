@@ -14,6 +14,9 @@ It goes stale the moment it arrives, which is honest; `refresh` takes another.
 The ringmaster answers with `DEFAULT_SCROLLBACK` (5000) lines when the request
 names none.
 
+Zavatta asks with the same message and gets it as plain text from
+`c2c_scrollback` ([zavatta.md](zavatta.md)).
+
 ## How far back
 
 tmux keeps `HISTORY_LIMIT` (10000) lines per pane. `history-limit` is set on the

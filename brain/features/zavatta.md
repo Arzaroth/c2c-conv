@@ -14,12 +14,13 @@ Without `--url` it reads the local session's `ringmaster.json` and connects to
 loopback; `--url wss://.../bozo?room=...&t=...` points it at a remote session.
 `--name` sets its bozo name (default `zavatta`).
 
-## The eight tools
+## The nine tools
 
 | tool | |
 |---|---|
-| `c2c_screen` | the session right now, as plain text |
-| `c2c_history` | the conversation, including turns from before it joined (`limit`, default 20) |
+| `c2c_screen` | the session right now, as plain text: only what fits on screen |
+| `c2c_scrollback` | the screen plus what scrolled off it, as plain text (`lines`, default 500, capped at tmux's 10000) |
+| `c2c_history` | the conversation, including turns from before it joined: numbered, a page of `limit` (default 20), `before` pages back |
 | `c2c_status` | mode, pane state, its own messages still held or in the outbox, and who else is in the circus |
 | `c2c_send` | text for the session, through the gate |
 | `c2c_press` | one allowlisted key |
@@ -34,7 +35,11 @@ its own messages would collapse the gate
 
 - It drops the pane byte stream (noise without a terminal emulator) and takes
   the screen from snapshots, which is why the ringmaster answers `refresh`.
-- It strips ANSI before handing anything over.
+- It strips ANSI before handing anything over, the scrollback included.
+- **It says how much there is.** A history page opens with `turns 481-500 of
+  500` and where the older ones start; agents given a bare last-20 did not know
+  there was more. Numbers count from the oldest turn the ringmaster still holds
+  (`MAX_HISTORY`), so they shift once it starts dropping turns.
 - **It waits rather than polls.** `c2c_wait` sits on the socket it already has
   and returns when the condition named in `for` happens: `idle` (the default),
   `dialog`, `reply` (claude answered), `lane` (someone spoke in f2f), or
@@ -49,6 +54,6 @@ its own messages would collapse the gate
 
 ## Sources
 
-- `src/zavatta.ts` (`BozoLink`, `TOOLS`, `WAIT_FOR`, `WAIT_MS`, `MAX_WAIT_MS`, `ANSI`)
+- `src/zavatta.ts` (`BozoLink`, `TOOLS`, `historyPage`, `HISTORY_PAGE`, `SCROLLBACK_LINES`, `WAIT_FOR`, `WAIT_MS`, `MAX_WAIT_MS`, `ANSI`)
 - `src/cli.ts` (`cmdZavatta`)
 - `test/zavatta.test.ts`
