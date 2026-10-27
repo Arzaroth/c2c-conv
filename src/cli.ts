@@ -363,6 +363,11 @@ async function cmdRestart({ opts }: { opts: Options }): Promise<void> {
       control(session, { cmd: 'handover' }).catch(() => null),
       new Promise<null>((r) => setTimeout(() => r(null), 5000)),
     ])
+    if (asked && !asked.ok) {
+      console.error(`the ringmaster for "${session}" cannot hand over (${asked.error}): it predates c2c restart.`)
+      console.error('it is left running; c2c stop, then c2c host, moves the session to this version.')
+      process.exit(1)
+    }
     // A ringmaster that will not answer is the one being hotfixed. Killed
     // outright, not SIGTERMed: a clean stop would take the tunnel and the
     // snapshot down with it.
