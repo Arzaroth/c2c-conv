@@ -2,8 +2,9 @@ import { timingSafeEqualString } from './secret.js'
 
 // The whiteface is the clown who runs the ring: the host, from a browser. These
 // are the control commands it may run, the same ones c2c ctl offers. status is
-// out because it carries the token, stop because ending the session is the
-// host's alone, rotate because its reply is the only place the new link exists.
+// out because it carries the token, stop and handover because ending the
+// session or its ringmaster is the host's alone, rotate because its reply is
+// the only place the new link exists.
 export const WHITEFACE_COMMANDS = new Set<string>([
   'list', 'mode', 'approve', 'deny', 'approve-next', 'deny-next', 'approve-all', 'deny-all',
   'outbox', 'cancel', 'cancel-all', 'bump',

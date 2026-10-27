@@ -27,3 +27,11 @@ export function metaFile(name: string): string {
 export function statusFile(name: string): string {
   return join(stateDir(name), 'status.txt')
 }
+
+export function snapshotFile(name: string): string {
+  return join(stateDir(name), 'snapshot.json')
+}
+
+export function tunnelLog(name: string): string {
+  return join(stateDir(name), 'cloudflared.log')
+}

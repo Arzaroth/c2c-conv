@@ -104,24 +104,25 @@ type PolicyEvent =
 // asking over its bozo socket. WHITEFACE_COMMANDS says which of these the
 // second is allowed.
 type ControlCommand =
-  | 'status' | 'list' | 'mode' | 'stop' | 'say'
+  | 'status' | 'list' | 'mode' | 'stop' | 'handover' | 'say'
   | 'approve' | 'deny' | 'approve-next' | 'deny-next' | 'approve-all' | 'deny-all'
   | 'outbox' | 'cancel' | 'cancel-all' | 'bump'
   | 'kick' | 'rotate' | 'trust' | 'who'
 
 // status carries the token and stop ends the session: those two stay with
-// c2c ctl and are never reachable from a browser. rotate is out for the same
+// c2c ctl and are never reachable from a browser, and so does handover, which
+// ends this ringmaster and needs a terminal to start the next one. rotate is out for the same
 // reason as status - it mints the new secret, the reply is the only place the
 // new link exists, and it would cut the socket that asked for it. say is the
 // host's way into the f2f lane from the terminal, and a browser already has
 // the lane. kick and trust are in: the browser has a roster to pick a target
 // from now, which is the thing that was missing.
 type WhitefaceCommand =
-  Exclude<ControlCommand, 'status' | 'stop' | 'say' | 'rotate'>
+  Exclude<ControlCommand, 'status' | 'stop' | 'handover' | 'say' | 'rotate'>
 
 type ControlRequest =
   | {
-      cmd: 'status' | 'list' | 'stop' | 'approve-next' | 'deny-next' | 'approve-all' | 'deny-all'
+      cmd: 'status' | 'list' | 'stop' | 'handover' | 'approve-next' | 'deny-next' | 'approve-all' | 'deny-all'
         | 'outbox' | 'cancel-all' | 'rotate' | 'who'
     }
   | { cmd: 'mode'; mode: string }
@@ -320,4 +321,26 @@ interface SessionMeta extends SessionLinks {
   port: number
   token: string
   bigtop: { url: string } | null
+}
+
+/* ── the snapshot file ──────────────────────────────────────────────────── */
+
+// What a ringmaster hands the next one for the same tmux session: c2c restart
+// after a hotfix, or after a crash. Rewritten on every change, removed on stop.
+// Per-bozo trust is deliberately absent: it belongs to a connection, and every
+// connection drops across a restart.
+interface SessionSnapshot {
+  version: 1
+  session: string
+  port: number
+  bind: string
+  token: string
+  whiteface: string | null
+  bigtop: { url: string; room: string } | null
+  tunnel: { wanted: boolean; pid: number | null; url: string | null }
+  mode: Mode
+  outboxMode: OutboxMode
+  pending: PendingEntry[]
+  outbox: OutboxEntry[]
+  f2f: F2fMessage[]
 }

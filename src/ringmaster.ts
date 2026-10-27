@@ -12,7 +12,7 @@ import { Farce } from './f2f.js'
 import { Whiteface, isWhitefaceCommand } from './whiteface.js'
 import { LocalTransport } from './transport/local.js'
 import { BigtopTransport } from './transport/bigtop.js'
-import { controlSocket, ensureStateDir, metaFile, paneFile, statusFile } from './paths.js'
+import { controlSocket, ensureStateDir, metaFile, paneFile, snapshotFile, statusFile, tunnelLog } from './paths.js'
 
 const MAX_PANE_BYTES = Number(process.env.C2C_MAX_PANE_BYTES) || 8 * 1024 * 1024
 const MAX_HISTORY = 500
@@ -59,6 +59,8 @@ interface RingmasterOptions {
   mode?: string
   whiteface?: string
   outboxMode?: OutboxMode
+  // What an earlier ringmaster for this session left behind.
+  restore?: Pick<SessionSnapshot, 'pending' | 'outbox' | 'f2f' | 'tunnel'>
 }
 
 export interface Bozo {
@@ -96,12 +98,24 @@ export class Ringmaster {
   #tunnelUrl: string | null = null
   #wantsTunnel = false
   #whiteface: Whiteface<Bozo>
+  #bind: string
+  #bigtopOpts: { url: string; room: string } | null
+  #restore: RingmasterOptions['restore']
+  #persistTimer: NodeJS.Timeout | undefined
+  #handingOver = false
+  // Typed into the pane and not yet seen through by the outbox. A handover
+  // leaves these out of the snapshot, or the next ringmaster types them twice.
+  #typed = new Set<number>()
+  #typing: Promise<void> | null = null
 
   constructor(
-    { session, port, host = '127.0.0.1', token, bigtop, tunnel = false, mode, whiteface, outboxMode }:
+    { session, port, host = '127.0.0.1', token, bigtop, tunnel = false, mode, whiteface, outboxMode, restore }:
     RingmasterOptions,
   ) {
     this.#wantsTunnel = tunnel
+    this.#bind = host
+    this.#bigtopOpts = bigtop?.url ? { url: bigtop.url, room: bigtop.room } : null
+    this.#restore = restore
     this.#outbox = new Outbox({ mode: outboxMode, send: (entry) => this.#deliver(entry) })
     this.#whiteface = new Whiteface<Bozo>(whiteface)
     if (mode) this.#policy.setMode(mode)
@@ -158,6 +172,11 @@ export class Ringmaster {
 
     this.#policy.onEvent((event) => this.#onPolicyEvent(event))
     this.#outbox.onEvent((event) => this.#onOutboxEvent(event))
+    if (this.#restore) {
+      this.#farce.restore(this.#restore.f2f ?? [])
+      this.#policy.restore(this.#restore.pending ?? [])
+      this.#outbox.restore(this.#restore.outbox ?? [])
+    }
 
     for (const transport of this.#transports) {
       transport.on('bozo', (channel: Channel) => this.#onGuest(channel))
@@ -178,28 +197,28 @@ export class Ringmaster {
     this.#transcript.start()
 
     // cloudflared connects out, so the ringmaster stays on loopback and there is
-    // still nothing to forward. The tunnel is a child of this process so it dies
-    // with the session rather than outliving it as a public URL.
+    // still nothing to forward. It is killed with the session rather than left
+    // outliving it as a public URL; only a handover leaves it running, for the
+    // next ringmaster to adopt.
     // Never awaited: cloudflared takes ten seconds or so to establish, and
     // blocking on it delays the metadata file that tells `c2c host` the session
     // is up. It concluded the ringmaster had failed and killed the session.
     if (this.#wantsTunnel) {
-      this.#tunnel = new Tunnel({ port: this.#local.port })
+      this.#tunnel = new Tunnel({ port: this.#local.port, log: tunnelLog(this.#session) })
       this.#tunnel.on('closed', () => {
         this.#tunnelUrl = null
         console.log('[tunnel] cloudflared exited')
+        this.#writeMeta()
+        this.#persist()
       })
-      this.#tunnel
-        .start()
-        .then(async (url) => {
-          this.#tunnelUrl = url
-          console.log(`[tunnel] ${url}`)
-          await this.#writeMeta()
-        })
-        .catch((err: Error) => {
-          console.error(`[tunnel] ${err.message}`)
-          this.#tunnel = null
-        })
+      const kept = this.#restore?.tunnel
+      const adopted = kept?.pid && kept.url ? this.#tunnel.adopt({ pid: kept.pid, url: kept.url }) : false
+      if (adopted) {
+        this.#tunnelUrl = kept!.url
+        console.log(`[tunnel] kept ${kept!.url} (cloudflared ${kept!.pid})`)
+      } else {
+        this.#startTunnel()
+      }
     }
 
     this.#watchPaneState()
@@ -207,6 +226,22 @@ export class Ringmaster {
 
     await this.#startControl()
     await this.#writeMeta()
+    await this.#writeSnapshot()
+  }
+
+  #startTunnel(): void {
+    this.#tunnel!
+        .start()
+        .then(async (url) => {
+          this.#tunnelUrl = url
+          console.log(`[tunnel] ${url}`)
+          await this.#writeMeta()
+          this.#persist()
+        })
+        .catch((err: Error) => {
+          console.error(`[tunnel] ${err.message}`)
+          this.#tunnel = null
+        })
   }
 
   announce(text: string): void {
@@ -218,20 +253,74 @@ export class Ringmaster {
     this.#broadcastJson({ type: 'bye', text })
   }
 
-  async stop(): Promise<void> {
+  // The session is over: the tunnel goes with it, and so does the snapshot,
+  // or c2c restart would bring back a session the host ended.
+  async stop({ handover = false }: { handover?: boolean } = {}): Promise<void> {
     clearInterval(this.#stateTimer)
+    clearTimeout(this.#persistTimer)
     this.#outbox.stop()
-    this.#tunnel?.stop()
+    if (handover) this.#tunnel?.release()
+    else this.#tunnel?.stop()
     await this.#transcript?.stop()
     await tmux.stopPipe(this.#session)
     await this.#pane?.stop()
     for (const transport of this.#transports) await transport.stop()
     this.#control?.close()
     // pane.raw is a transient buffer, not a record. ringmaster.log stays.
-    for (const path of [controlSocket(this.#session), metaFile(this.#session), paneFile(this.#session)]) {
+    const gone = [controlSocket(this.#session), metaFile(this.#session), paneFile(this.#session)]
+    if (!handover) gone.push(snapshotFile(this.#session))
+    for (const path of gone) {
       try {
         await unlink(path)
       } catch {}
+    }
+  }
+
+  // Stop typing, write down everything a bozo would miss, and go, leaving the
+  // tmux session and cloudflared running for the next ringmaster to pick up.
+  // A message half typed when the process dies is the one thing a restart
+  // could break, so the write in progress is waited out first.
+  async handover(): Promise<void> {
+    this.#handingOver = true
+    this.#outbox.stop()
+    await this.#typing
+    this.announce('c2c is restarting - you will be reconnected in a moment')
+    await this.#writeSnapshot()
+    await new Promise((r) => setTimeout(r, 150))
+    await this.stop({ handover: true })
+  }
+
+  #snapshot(): SessionSnapshot {
+    return {
+      version: 1,
+      session: this.#session,
+      port: this.#local.port,
+      bind: this.#bind,
+      token: this.#token,
+      whiteface: this.#whiteface.token,
+      bigtop: this.#bigtopOpts,
+      tunnel: { wanted: this.#wantsTunnel, pid: this.#tunnel?.pid ?? null, url: this.#tunnelUrl },
+      mode: this.#policy.mode,
+      outboxMode: this.#outbox.mode,
+      pending: this.#policy.list(),
+      outbox: this.#outbox.list().filter((entry) => !this.#typed.has(entry.id)),
+      f2f: this.#farce.history(),
+    }
+  }
+
+  // Kept current rather than written only on the way out, so a ringmaster
+  // that crashed can be restarted from where it was too.
+  #persist(): void {
+    if (this.#handingOver) return
+    clearTimeout(this.#persistTimer)
+    this.#persistTimer = setTimeout(() => this.#writeSnapshot(), 200)
+  }
+
+  async #writeSnapshot(): Promise<void> {
+    try {
+      await writeFile(snapshotFile(this.#session), JSON.stringify(this.#snapshot()), { mode: 0o600 })
+    } catch (err) {
+      console.error(`[snapshot] ${(err as Error).message}`)
     }
   }
 
@@ -393,6 +482,7 @@ export class Ringmaster {
 
     this.#notifyHost('c2c: the link was reset - the old one no longer works')
     this.#writeMeta()
+    this.#persist()
     this.#writeStatusLine()
     return this.#meta()
   }
@@ -609,8 +699,15 @@ export class Ringmaster {
       const draft = await tmux.promptDraft(this.#session)
       if (draft) return { ok: false, retry: true, reason: 'draft' }
 
+      if (this.#handingOver) return { ok: false, retry: true, reason: state }
       console.log(`[outbox] o${entry.id} sending: ${JSON.stringify(entry.text.slice(0, 40))}`)
-      await tmux.submit(this.#session, entry.text)
+      this.#typed.add(entry.id)
+      this.#typing = tmux.submit(this.#session, entry.text)
+      try {
+        await this.#typing
+      } finally {
+        this.#typing = null
+      }
       // Even in through, the next message must not catch this one still in the
       // box, or the two arrive spliced into one turn. The wait is shorter there
       // because a busy session may not be rendering the box at all, and then
@@ -647,7 +744,9 @@ export class Ringmaster {
   }
 
   #onOutboxEvent(event: OutboxEvent): void {
+    if (event.type === 'sent' || event.type === 'failed') this.#typed.delete(event.entry.id)
     if (event.type === 'changed') {
+      this.#persist()
       this.#broadcastJson({ type: 'outbox', entries: this.#outbox.list(), mode: this.#outbox.mode })
       this.#writeStatusLine()
       return
@@ -667,6 +766,7 @@ export class Ringmaster {
   #say(from: string, text: unknown, host = false, nonce?: string): F2fMessage | null {
     const msg = this.#farce.say({ from, text, host })
     if (!msg) return null
+    this.#persist()
     this.#broadcastJson({ type: 'f2f', msg, ...(nonce ? { nonce } : {}) })
     // The host at the terminal has no panel to read, so the lane arrives as a
     // tmux message. Their own lines are not echoed back at them.
@@ -687,6 +787,7 @@ export class Ringmaster {
   }
 
   #onPolicyEvent(event: PolicyEvent): void {
+    this.#persist()
     // Both ways through the gate end in the same queue: yolo straight through,
     // gallery once the host releases it.
     if (event.type === 'sent') {
@@ -910,6 +1011,13 @@ export class Ringmaster {
         return { ok: true, approved: this.#policy.approveAll() }
       case 'deny-all':
         return { ok: true, denied: this.#policy.denyAll() }
+      // c2c restart: the next ringmaster is started once this one has gone.
+      case 'handover':
+        setTimeout(async () => {
+          await this.handover()
+          process.exit(0)
+        }, 50)
+        return { ok: true, stopping: true }
       case 'stop':
         // Same courtesy the watchdog path gives: tell bozos before going, and
         // clean up rather than exiting on the spot.
