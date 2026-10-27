@@ -180,6 +180,18 @@ until `c2c stop`. And the whiteface secret is on disk, at 0600 in the 0700 state
 dir next to the token that is already there. Trust stays out: it is per
 connection by design (0009), and a restart drops every connection.
 
+### 0015 The ledger uses the SQLite built into node
+
+The lane, the held queue and who sent which turn were lost on stop, and the
+transcript cannot attribute a turn by design (0001). The ringmaster records it
+as it happens, in SQLite because `c2c log` has to filter by kind and phrase
+over a file that grows for as long as a session name is reused. `node:sqlite`
+ships with node 22.13 and later, so the no-dependency rule (0007) holds; it is
+loaded dynamically and the ledger is simply off on an older node, the same
+never-load-bearing stance as the transcript. It sits beside `snapshot.json`
+rather than replacing it: the snapshot is the state a restart needs and is
+removed on stop; the ledger is history and is kept.
+
 ## Sources
 
 - `src/tmux.ts`, `src/policy.ts`, `src/outbox.ts`, `src/ringmaster.ts`

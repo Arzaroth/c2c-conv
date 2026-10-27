@@ -28,6 +28,7 @@ Other commands:
 | `c2c invite [-s NAME]` | reprint the bozo instructions: the ssh forward, LAN and tailscale addresses, the tunnel or bigtop link |
 | `c2c say <text>` | a line in the [f2f lane](f2f-lane.md) |
 | `c2c ctl ...` | host control, see [../architecture/protocol.md](../architecture/protocol.md#the-control-dispatcher) |
+| `c2c log [-s NAME] [--f2f] [--grep TEXT] [-n N]` | what happened, from the [ledger](ledger.md), during or after the session |
 | `c2c restart [-s NAME]` | a new ringmaster for the running session, same links and tunnel, see [restart.md](restart.md) |
 | `c2c stop [-s NAME]` | tear it down, including a cloudflared a crashed ringmaster left behind |
 | `c2c bigtop [-p PORT] [--bind ADDR]` | run a bigtop (alias `broker`) |

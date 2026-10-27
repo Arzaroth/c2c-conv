@@ -30,6 +30,9 @@ Vocabulary owned by the tools underneath is deliberately left alone.
 - **handover** - one ringmaster giving its running session to the next, by
   `c2c restart`: links, tunnel, lane and queues kept, trust dropped.
   [features/restart.md](features/restart.md). Avoid: reload, resume (an alias).
+- **ledger** - `ledger.sqlite`, the per-session record of what happened, read
+  with `c2c log`. [features/ledger.md](features/ledger.md). Avoid: audit log,
+  history (that is the transcript tab).
 - **snapshot** - `snapshot.json`, what a handover or a crash leaves for the next
   ringmaster. Not the scrollback snapshot, which is a capture of the pane.
 - **trust** - a per-bozo override of the room default, keyed by connection id.

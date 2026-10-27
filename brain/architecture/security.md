@@ -13,6 +13,10 @@
   stop. `snapshot.json` (0600) holds it too, with the whiteface secret, the held
   queue and the f2f lane, so `c2c restart` can bring them back; it is removed
   on stop ([../features/restart.md](../features/restart.md)).
+- **The ledger keeps every bozo's words after stop.** `ledger.sqlite` in the
+  state dir records the f2f lane, every message sent or held and who sent it
+  ([../features/ledger.md](../features/ledger.md)). Never the token. Delete the
+  file to forget a session.
 - **A tunnel can outlive its ringmaster** now: a handover leaves it for the
   next one, and a crash leaves it forwarding to a dead port until `c2c stop` or
   `c2c restart`. Nothing answers behind it, but the URL is still public.

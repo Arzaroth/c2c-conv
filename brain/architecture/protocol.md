@@ -86,6 +86,7 @@ name; a name matching more than one bozo is refused rather than guessed.
 | bozos per session and per bigtop room | 30 | `MAX_BOZOS`, `src/policy.ts` (429 past it) |
 | f2f line / lines kept | 2000 chars / 200 | `MAX_F2F_TEXT`, `F2F_HISTORY`, `src/f2f.ts` |
 | bigtop rooms | 64 | `MAX_ROOMS`, `bigtop/server.ts` |
+| ledger rows per session | 200000 | `MAX_LEDGER_ROWS`, `src/ledger.ts` (oldest pruned) |
 
 The pending queue and the outbox are the two things a bozo can grow without the
 host agreeing to anything, so neither is unbounded. A restart restores all three

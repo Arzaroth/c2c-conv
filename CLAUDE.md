@@ -75,6 +75,13 @@ snapshot; only a handover releases the tunnel, and SIGTERM is a real stop. A
 message typed into the pane and not yet confirmed stays out of the snapshot, or
 the next ringmaster types it twice.
 
+## The ledger is a record, never a path
+
+`ledger.sqlite` (`brain/features/ledger.md`) is written by the ringmaster as
+things happen and read only by `c2c log`. Nothing waits on it: `Ledger.record`
+never throws and `node:sqlite` is optional, because a full disk must cost the
+record, not the session. It never holds the token.
+
 ## The f2f lane never reaches the pane
 
 Not a flag on the submit path: the lane has no code path to `tmux` beyond
