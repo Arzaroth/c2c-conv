@@ -9,6 +9,8 @@ than adding to it.
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-10-27
+
 ### Added
 
 - **The ledger and `c2c log`.** The f2f lane, every message sent, held,
