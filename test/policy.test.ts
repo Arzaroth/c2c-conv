@@ -223,3 +223,23 @@ test('the whiteface still cannot press keys outside the allowlist', () => {
   const policy = new Policy()
   assert.equal(policy.submitKey({ key: 'C-c', bozo: 'host', whiteface: true }).action, 'rejected')
 })
+
+test('a restored held message keeps its id and can still be released', () => {
+  const policy = new Policy()
+  policy.restore([
+    { id: 4, text: 'held over a restart', bozo: 'bozo', at: 1 },
+    { id: 9, text: 'x'.repeat(MAX_TEXT + 1), bozo: 'bozo', at: 2 },
+    { id: -1, text: 'no id', at: 3 },
+  ])
+  assert.deepEqual(policy.list().map((entry) => entry.id), [4])
+  assert.equal(policy.approve(4)?.text, 'held over a restart')
+
+  const next = policy.submit({ text: 'a new one', bozo: 'bozo' })
+  assert.equal(next.action === 'queued' && next.id, 5)
+})
+
+test('a restored queue is capped like a live one', () => {
+  const policy = new Policy()
+  policy.restore(Array.from({ length: MAX_PENDING + 10 }, (_, i) => ({ id: i + 1, text: `m${i}`, at: i })))
+  assert.equal(policy.list().length, MAX_PENDING)
+})

@@ -4,7 +4,7 @@ import { writeFileSync, chmodSync, mkdtempSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { Tunnel, parseTunnelUrl, resolveCloudflared } from '../src/tunnel.js'
+import { Tunnel, isTunnelFor, parseTunnelUrl, resolveCloudflared } from '../src/tunnel.js'
 
 test('the quick tunnel URL is read out of the banner', () => {
   const line = '2026-09-01T12:00:00Z INF |  https://polite-clown-shoes-honk.trycloudflare.com  |'
@@ -93,5 +93,48 @@ test('an explicit override beats everything', () => {
   } finally {
     if (previous === undefined) delete process.env.C2C_CLOUDFLARED
     else process.env.C2C_CLOUDFLARED = previous
+  }
+})
+
+function stub(name: string): string {
+  const dir = mkdtempSync(join(tmpdir(), 'c2c-tunnel-'))
+  const bin = join(dir, name)
+  writeFileSync(bin, `#!/bin/sh
+echo "INF |  Your quick Tunnel has been created! Visit it at |" >&2
+echo "INF |  https://handed-over-tent.trycloudflare.com |" >&2
+sleep 30
+`)
+  chmodSync(bin, 0o755)
+  return bin
+}
+
+// A restart hands the running tunnel to the next ringmaster, because a quick
+// tunnel's URL cannot be asked for twice.
+test('a released tunnel keeps running and the next one adopts it', async () => {
+  const bin = stub('cloudflared')
+  const first = new Tunnel({ port: 7332, bin, log: join(mkdtempSync(join(tmpdir(), 'c2c-log-')), 'cf.log') })
+  const url = await first.start(8000)
+  const pid = first.pid!
+  first.release()
+  assert.equal(isTunnelFor(pid, 7332), true)
+
+  const next = new Tunnel({ port: 7332, bin })
+  assert.equal(next.adopt({ pid, url }), true)
+  assert.equal(next.url, url)
+  next.stop()
+  await new Promise((r) => setTimeout(r, 200))
+  assert.equal(isTunnelFor(pid, 7332), false)
+})
+
+// pid reuse: a recorded pid is only adopted while it is still a cloudflared
+// forwarding to the same port.
+test('a pid that is not a tunnel for this port is not adopted', async () => {
+  const tunnel = new Tunnel({ port: 7333, bin: stub('cloudflared') })
+  await tunnel.start(8000)
+  try {
+    assert.equal(new Tunnel({ port: 7334 }).adopt({ pid: tunnel.pid!, url: 'https://x.trycloudflare.com' }), false)
+    assert.equal(new Tunnel({ port: 7333 }).adopt({ pid: process.pid, url: 'https://x.trycloudflare.com' }), false)
+  } finally {
+    tunnel.stop()
   }
 })

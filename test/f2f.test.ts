@@ -48,3 +48,18 @@ test('history is bounded and the greeting takes the tail of it', () => {
     `line ${F2F_HISTORY + 19}`,
   ])
 })
+
+test('a restored lane keeps its ids and its caps', () => {
+  const farce = new Farce()
+  const old = Array.from({ length: F2F_HISTORY + 5 }, (_, i) => ({
+    id: i + 1, from: 'bozo', text: i === F2F_HISTORY + 4 ? 'x\ny'.repeat(MAX_F2F_TEXT) : `line ${i + 1}`, at: i,
+  }))
+  farce.restore(old)
+
+  const kept = farce.history()
+  assert.equal(kept.length, F2F_HISTORY)
+  assert.equal(kept[0].id, 6)
+  assert.ok(kept.at(-1)!.text.length <= MAX_F2F_TEXT)
+  assert.doesNotMatch(kept.at(-1)!.text, /\n/)
+  assert.equal(farce.say({ from: 'host', text: 'after' })?.id, F2F_HISTORY + 6)
+})

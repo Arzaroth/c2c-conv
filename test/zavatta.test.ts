@@ -1,6 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { createServer, type AddressInfo } from 'node:net'
 
+import { LocalTransport } from '../src/transport/local.js'
 import { BozoLink, HISTORY_PAGE, historyPage, stripAnsi, wakes } from '../src/zavatta.js'
 
 test('screen text reaches an agent without escape sequences', () => {
@@ -108,4 +110,47 @@ test('the first page says there is nothing older', () => {
   assert.match(historyPage(turns(3), { limit: 10 }), /^turns 1-3 of 3\.\n/)
   assert.match(historyPage(turns(3), { before: 1 }), /nothing before turn 1/)
   assert.equal(historyPage([]), '(nothing in the conversation yet)')
+})
+
+function freePort(): Promise<number> {
+  return new Promise<number>((resolve) => {
+    const probe = createServer()
+    probe.listen(0, '127.0.0.1', () => {
+      const { port } = probe.address() as AddressInfo
+      probe.close(() => resolve(port))
+    })
+  })
+}
+
+// A ringmaster restarting drops every socket, and an MCP server that exited on
+// that took the agent's tools away. Only a bye means the session is over.
+test('an agent comes back after a drop and stays gone after a bye', async () => {
+  const port = await freePort()
+  const ring = new LocalTransport({ port, host: '127.0.0.1', token: 'restart-token' })
+  const channels: Channel[] = []
+  ring.on('bozo', (channel: Channel) => {
+    channels.push(channel)
+    channel.on('text', () => channel.sendJson({ type: 'hoink', mode: 'gallery' } as ServerMessage))
+  })
+  await ring.start()
+
+  const agent = new BozoLink({ url: `ws://127.0.0.1:${port}/?t=restart-token` })
+  try {
+    await agent.connect()
+    const back = new Promise((r) => agent.once('reconnected', r))
+    channels[0].close()
+    await back
+    assert.equal(agent.connected, true)
+    assert.equal(channels.length, 2)
+
+    const ended = new Promise((r) => agent.once('ended', r))
+    channels[1].sendJson({ type: 'bye', text: 'the session ended' } as ServerMessage)
+    channels[1].close()
+    await ended
+    await new Promise((r) => setTimeout(r, 1200))
+    assert.equal(channels.length, 2)
+  } finally {
+    agent.close()
+    await ring.stop()
+  }
 })

@@ -155,3 +155,29 @@ test('cancel-all clears what is waiting and leaves what is going in', async () =
   assert.deepEqual(outbox.list().map((e) => e.text), ['going in'])
   release({ ok: true })
 })
+
+test('a restored outbox delivers from the top and carries on numbering', async () => {
+  const sent: number[] = []
+  const outbox = new Outbox({
+    send: async (entry) => {
+      sent.push(entry.id)
+      return { ok: true }
+    },
+    retryMs: 1,
+  })
+  outbox.restore([
+    { id: 3, text: 'first', at: 1, state: 'sending' },
+    { id: 7, text: 'second', at: 2, state: 'waiting', reason: 'busy' },
+    { id: 8, text: '', at: 3, state: 'waiting' },
+  ])
+  await new Promise((r) => setTimeout(r, 20))
+  assert.deepEqual(sent, [3, 7])
+  assert.equal(outbox.add({ text: 'third' })?.id, 8)
+})
+
+test('a restored outbox is capped like a live one', () => {
+  const outbox = new Outbox({ send: async () => ({ ok: false, retry: true, reason: 'busy' }), retryMs: 50 })
+  outbox.restore(Array.from({ length: MAX_OUTBOX + 5 }, (_, i) => ({ id: i + 1, text: `m${i}`, at: i, state: 'waiting' as const })))
+  assert.equal(outbox.list().length, MAX_OUTBOX)
+  outbox.stop()
+})
