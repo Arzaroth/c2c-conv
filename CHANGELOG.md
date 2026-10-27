@@ -9,6 +9,28 @@ than adding to it.
 
 ## [Unreleased]
 
+### Added
+
+- **`c2c restart`** (alias `resume`) gives a running session a new ringmaster,
+  after a hotfix or a crash. Every link handed out keeps working, the whiteface
+  link and the cloudflared URL included, and the f2f lane, the held queue and
+  the outbox come back with their ids. The state lives in `snapshot.json` in
+  the state dir, rewritten on every change and removed on stop. Per-bozo trust
+  is not kept: it belongs to a connection.
+- **`c2c_scrollback`** for agents: the screen plus what scrolled off it, as
+  plain text. An agent only had the visible screen before.
+- **`c2c_history` pages.** Turns are numbered, a page says how many there are,
+  and `before` reaches the older ones. Agents given a bare last 20 did not know
+  there was more.
+
+### Changed
+
+- cloudflared runs detached and logs to `cloudflared.log` in the state dir, so
+  a restart can hand it on. `c2c stop` kills one a crashed ringmaster left
+  running.
+- Zavatta reconnects when the ringmaster goes away and comes back, and exits
+  only when the session says goodbye.
+
 ## [0.3.4] - 2026-10-26
 
 ### Fixed

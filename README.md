@@ -122,7 +122,20 @@ connects out, so there is nothing to deploy and nothing to forward, and you get
 a `https://...trycloudflare.com` link to send. It needs the `cloudflared` binary - from your package manager, or `npm i
 cloudflared` which c2c will pick up out of `node_modules/.bin`.
 The link is **public** - the token is the only thing protecting it - and the
-tunnel dies with the session rather than outliving it.
+tunnel dies with the session rather than outliving it. `c2c restart` is the one
+exception: it hands the running tunnel to the next ringmaster, so the URL stays
+the same.
+
+## Restarting without losing anyone
+
+`c2c restart` gives a running session a new ringmaster: after you rebuild c2c
+for a hotfix, or after the old one crashed. claude keeps running in tmux, every
+link you handed out keeps working (the whiteface link and the tunnel URL too),
+and the f2f lane, the held messages and the outbox come back with their ids.
+Browsers and agents reconnect on their own. The one thing dropped is per-bozo
+trust, which belongs to a connection; whoever you trusted is back on the room
+default until you say otherwise. Details in
+[brain/features/restart.md](brain/features/restart.md).
 
 The bigtop rung has both sides dial *out*, so it works when neither machine can
 reach the other. Run one anywhere with `c2c bigtop`, or
@@ -328,6 +341,7 @@ safe. Elevate for people you would hand your actual keyboard to.
 | `c2c ctl <who\|trust WHO gallery\|yolo\|default>` | the roster, and trust one bozo at a time |
 | `c2c ctl <outbox\|cancel ID\|cancel-all\|bump ID\|say TEXT>` | the outbox and the lane |
 | `c2c ctl <kick ID\|rotate>` | show one bozo out, or reset the link for everybody |
+| `c2c restart [-s NAME]` | a new ringmaster for the running session, same links and tunnel |
 | `c2c stop [-s NAME]` | tear it down |
 | `c2c bigtop [-p PORT] [--bind ADDR]` | run a bigtop |
 

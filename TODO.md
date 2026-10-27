@@ -4,7 +4,9 @@ What is left, and why each thing is worth doing. Grounded in the code as it
 stands at v0.3.4: the architecture is finished for what it does, so almost
 nothing here is plumbing.
 
-Done in v0.3.4: a dialog hint left in the transcript above the input box no
+Done since v0.3.4: `c2c restart`, a new ringmaster for a running session with
+the links, the tunnel, the lane and both queues kept; zavatta's
+`c2c_scrollback` and paged `c2c_history`. Done in v0.3.4: a dialog hint left in the transcript above the input box no
 longer wedges the outbox. Done in v0.3.3: per-bozo trust, so one person can be
 let into the ring without the other twenty-nine coming with them; the circus -
 a roster with presence, which is also what `kick` and `trust` needed before
@@ -56,22 +58,6 @@ it actually landed, which is the attribution the transcript cannot give you.
 *Touches:* `src/policy.ts` events, `src/outbox.ts` events, `src/ringmaster.ts`,
 `src/transcript.ts`, `web/client.ts`.
 
-## `c2c resume`
-
-**M.** Persist token, mode, whiteface token and the pending queue into the state
-dir, and let a fresh ringmaster adopt a tmux session that is still running.
-Per-bozo trust deliberately does not persist: it belongs to a connection, and
-the ringmaster restarting drops every connection there was.
-
-*Why.* The tmux session outlives the ringmaster but the sharing does not. All of
-that state is process memory, and `metaFile` is unlinked on stop, so a crash
-leaves a live claude session with no way back other than `c2c stop`. The
-long-lived sessions are exactly the `--tunnel` and `--bigtop` ones, where losing
-the URL costs the most.
-
-*Touches:* `src/ringmaster.ts` (`#writeMeta`, `start`), `src/cli.ts`,
-`src/paths.ts`, `src/whiteface.ts`.
-
 ## `--cols` and `--rows`
 
 **S.** Geometry is hardcoded at 200x50 in `tmux.newSession` until a client
@@ -104,6 +90,5 @@ currently discards history rather than rolling it.
 By value against effort:
 
 1. Attribution and an audit log - closes the hole the security model opens
-2. `c2c resume`
-3. `--cols` / `--rows`
-4. Replay
+2. `--cols` / `--rows`
+3. Replay
