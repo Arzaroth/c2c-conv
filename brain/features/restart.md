@@ -43,7 +43,9 @@ so a session the host ended never comes back.
    pane, writes the snapshot, and stops without killing cloudflared.
 3. A ringmaster that does not answer within 5s, or does not exit within 15s, is
    SIGKILLed: SIGTERM is a clean stop, and that removes the snapshot and the
-   tunnel. The on-disk snapshot is at most one debounce old.
+   tunnel. The on-disk snapshot is at most one debounce old. One that answers
+   `unknown command` predates restart and is left running: killing it would
+   leave nothing to restart from.
 4. The CLI starts `__ringmaster` with `C2C_RESUME=1`; it builds itself from the
    snapshot, restores the lane, the queue and the outbox (caps applied again),
    and adopts the cloudflared pid if `ps` still shows it forwarding to that port.
