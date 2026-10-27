@@ -12,7 +12,8 @@ import * as tmux from './tmux.js'
 import { Ringmaster } from './ringmaster.js'
 import { GALLERY, YOLO } from './policy.js'
 import { OUTBOX_MODES } from './outbox.js'
-import { controlSocket, ensureStateDir, metaFile, snapshotFile, stateDir, statusFile } from './paths.js'
+import { controlSocket, ensureStateDir, ledgerFile, metaFile, snapshotFile, stateDir, statusFile } from './paths.js'
+import { readLedger, type LedgerKind } from './ledger.js'
 import { isTunnelFor } from './tunnel.js'
 import { version, versionReport } from './version.js'
 
@@ -38,6 +39,9 @@ interface Options {
   url?: string
   name?: string
   outbox?: string
+  kinds?: string[]
+  grep?: string
+  limit?: number
 }
 
 function parseArgs(argv: string[]): { opts: Options; rest: string[]; passthrough: string[] | null } {
@@ -67,6 +71,10 @@ function parseArgs(argv: string[]): { opts: Options; rest: string[]; passthrough
     else if (arg === '--url') opts.url = argv[++i]
     else if (arg === '--name') opts.name = argv[++i]
     else if (arg === '--outbox') opts.outbox = argv[++i]
+    else if (arg === '--f2f') opts.kinds = [...(opts.kinds ?? []), 'f2f']
+    else if (arg === '--kind') opts.kinds = [...(opts.kinds ?? []), ...argv[++i].split(',')]
+    else if (arg === '--grep') opts.grep = argv[++i]
+    else if (arg === '-n' || arg === '--limit') opts.limit = Number(argv[++i])
     else rest.push(arg)
   }
   return { opts, rest, passthrough }
@@ -715,6 +723,32 @@ async function cmdSay({ opts, rest }: { opts: Options; rest: string[] }): Promis
   console.log('said')
 }
 
+async function cmdLog({ opts }: { opts: Options }): Promise<void> {
+  const path = ledgerFile(opts.session)
+  let rows
+  try {
+    rows = await readLedger(path, {
+      kinds: opts.kinds as LedgerKind[] | undefined,
+      grep: opts.grep,
+      limit: opts.limit && opts.limit > 0 ? opts.limit : 100,
+    })
+  } catch {
+    console.error(`no ledger for session "${opts.session}" at ${path}`)
+    process.exit(1)
+  }
+  if (!rows) {
+    console.error(`this node (${process.version}) has no node:sqlite: the ledger needs node 22.13 or later`)
+    process.exit(1)
+  }
+  for (const row of rows) {
+    const at = new Date(row.at).toLocaleString('sv-SE')
+    const ref = row.ref ? `${row.ref} ` : ''
+    const who = row.who ?? ''
+    const text = row.text ? `${who ? ': ' : ''}${row.text}` : ''
+    console.log(`${at}  ${row.kind.padEnd(9)} ${ref}${who}${text}`)
+  }
+}
+
 async function cmdStop({ opts }: { opts: Options }): Promise<void> {
   try {
     await control(opts.session, { cmd: 'stop' })
@@ -748,6 +782,8 @@ usage:
            |approve ID|deny ID|approve-all|deny-all
            |outbox|cancel ID|cancel-all|bump ID|say TEXT|kick ID|rotate>
   c2c restart [-s NAME]  a new ringmaster for a running session, same links
+  c2c log [-s NAME] [--f2f] [--kind K,K] [--grep TEXT] [-n N]
+                   what happened: the lane, who sent what, releases, keys, joins
   c2c stop [-s NAME]
   c2c version | --version
   c2c bigtop [-p PORT] [--bind ADDR]
@@ -807,6 +843,9 @@ try {
     case 'bigtop':
     case 'broker':
       await cmdBigtop({ opts })
+      break
+    case 'log':
+      await cmdLog({ opts })
       break
     case 'restart':
     case 'resume':
