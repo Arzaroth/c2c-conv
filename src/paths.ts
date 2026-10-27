@@ -35,3 +35,7 @@ export function snapshotFile(name: string): string {
 export function tunnelLog(name: string): string {
   return join(stateDir(name), 'cloudflared.log')
 }
+
+export function ledgerFile(name: string): string {
+  return join(stateDir(name), 'ledger.sqlite')
+}
