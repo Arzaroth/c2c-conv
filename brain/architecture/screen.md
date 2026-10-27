@@ -28,7 +28,10 @@ browser shows the [keypad](../features/keypad.md) on `dialog`.
   `❯` line directly under a rule of at least 20 `─`, within the last 8 lines.
 - **Submitted turns are echoed with the same marker.** A bare-marker scan finds
   the last submitted message and reports it as a draft, so every follow-up would
-  look like it splices into one. The rule above is what tells them apart.
+  look like it splices into one. The rule above is what tells them apart, and
+  the lowest marker in the window is the one checked: a slash command's echo is
+  short enough to share the last 8 lines with the box, and taking the first
+  marker read the pane as `unknown` and held the outbox for good.
 - **No input box is `null`, not `''`.** The box vanishes briefly during
   redraws; conflating that with empty is what made the settle step necessary.
 
