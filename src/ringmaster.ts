@@ -12,7 +12,8 @@ import { Farce } from './f2f.js'
 import { Whiteface, isWhitefaceCommand } from './whiteface.js'
 import { LocalTransport } from './transport/local.js'
 import { BigtopTransport } from './transport/bigtop.js'
-import { controlSocket, ensureStateDir, metaFile, paneFile, snapshotFile, statusFile, tunnelLog } from './paths.js'
+import { controlSocket, ensureStateDir, ledgerFile, metaFile, paneFile, snapshotFile, statusFile, tunnelLog } from './paths.js'
+import { Ledger, type LedgerEvent } from './ledger.js'
 
 const MAX_PANE_BYTES = Number(process.env.C2C_MAX_PANE_BYTES) || 8 * 1024 * 1024
 const MAX_HISTORY = 500
@@ -107,6 +108,7 @@ export class Ringmaster {
   // leaves these out of the snapshot, or the next ringmaster types them twice.
   #typed = new Set<number>()
   #typing: Promise<void> | null = null
+  #ledger: Ledger | null = null
 
   constructor(
     { session, port, host = '127.0.0.1', token, bigtop, tunnel = false, mode, whiteface, outboxMode, restore }:
@@ -161,6 +163,13 @@ export class Ringmaster {
 
   async start(): Promise<void> {
     await ensureStateDir(this.#session)
+    try {
+      this.#ledger = await Ledger.open(ledgerFile(this.#session))
+      if (!this.#ledger) console.log('[ledger] off: this node has no node:sqlite')
+    } catch (err) {
+      console.error(`[ledger] off: ${(err as Error).message}`)
+    }
+    this.#record({ kind: 'start', who: 'host', text: this.#restore ? 'restarted' : 'hosted' })
     await writeFile(paneFile(this.#session), '')
     await tmux.startPipe(this.#session, paneFile(this.#session))
 
@@ -267,6 +276,8 @@ export class Ringmaster {
     for (const transport of this.#transports) await transport.stop()
     this.#control?.close()
     // pane.raw is a transient buffer, not a record. ringmaster.log stays.
+    this.#ledger?.close()
+    this.#ledger = null
     const gone = [controlSocket(this.#session), metaFile(this.#session), paneFile(this.#session)]
     if (!handover) gone.push(snapshotFile(this.#session))
     for (const path of gone) {
@@ -288,6 +299,10 @@ export class Ringmaster {
     await this.#writeSnapshot()
     await new Promise((r) => setTimeout(r, 150))
     await this.stop({ handover: true })
+  }
+
+  #record(event: LedgerEvent): void {
+    this.#ledger?.record(event)
   }
 
   #snapshot(): SessionSnapshot {
@@ -481,6 +496,7 @@ export class Ringmaster {
     if (this.#whiteface.enabled) this.#whiteface.rotate(randomBytes(16).toString('hex'))
 
     this.#notifyHost('c2c: the link was reset - the old one no longer works')
+    this.#record({ kind: 'rotate', who: 'host' })
     this.#writeMeta()
     this.#persist()
     this.#writeStatusLine()
@@ -504,6 +520,7 @@ export class Ringmaster {
       // Trust was for the person on the other end of THIS socket. Whoever comes
       // back on the next one is in the gallery until the host says otherwise.
       this.#policy.forget(bozo.id)
+      this.#record({ kind: 'leave', who: bozo.name, bozo: bozo.id })
       if (this.#whiteface.release(bozo)) {
         this.#notifyHost('c2c: the whiteface left, the role is free again')
       }
@@ -524,6 +541,10 @@ export class Ringmaster {
       bozo.name = name.slice(0, 40).replace(/[^\w .-]/g, '') || 'bozo'
     }
     const claim = token === undefined ? null : this.#whiteface.claim(bozo, token)
+    this.#record({ kind: 'join', who: bozo.name, bozo: bozo.id, text: bozo.origin })
+    if (claim) {
+      this.#record({ kind: 'whiteface', who: bozo.name, bozo: bozo.id, text: claim.ok ? 'claimed' : `refused: ${claim.reason}` })
+    }
     if (claim?.ok) this.#notifyHost(`c2c: ${bozo.name} is the whiteface now`)
     const whiteface = this.#whiteface.holds(bozo)
 
@@ -644,7 +665,10 @@ export class Ringmaster {
         bozoId: bozo.id,
         whiteface: this.#whiteface.holds(bozo),
       })
-      if (result.action === 'send') this.#pressKey(result.key)
+      if (result.action === 'send') {
+        this.#record({ kind: 'key', who: bozo.name, bozo: bozo.id, text: result.key })
+        this.#pressKey(result.key)
+      }
       else bozo.channel.sendJson({ type: 'key:refused', key: msg.key, reason: result.reason })
       return
     }
@@ -744,7 +768,13 @@ export class Ringmaster {
   }
 
   #onOutboxEvent(event: OutboxEvent): void {
-    if (event.type === 'sent' || event.type === 'failed') this.#typed.delete(event.entry.id)
+    if (event.type === 'sent' || event.type === 'failed') {
+      this.#typed.delete(event.entry.id)
+      const { id, bozo, text } = event.entry
+      this.#record(event.type === 'sent'
+        ? { kind: 'delivered', who: bozo, ref: `o${id}`, text }
+        : { kind: 'failed', who: bozo, ref: `o${id}`, text: `${holdText(event.reason)}: ${text}` })
+    }
     if (event.type === 'changed') {
       this.#persist()
       this.#broadcastJson({ type: 'outbox', entries: this.#outbox.list(), mode: this.#outbox.mode })
@@ -767,6 +797,7 @@ export class Ringmaster {
     const msg = this.#farce.say({ from, text, host })
     if (!msg) return null
     this.#persist()
+    this.#record({ kind: 'f2f', who: host ? 'host' : msg.from, text: msg.text })
     this.#broadcastJson({ type: 'f2f', msg, ...(nonce ? { nonce } : {}) })
     // The host at the terminal has no panel to read, so the lane arrives as a
     // tmux message. Their own lines are not echoed back at them.
@@ -788,6 +819,7 @@ export class Ringmaster {
 
   #onPolicyEvent(event: PolicyEvent): void {
     this.#persist()
+    this.#recordPolicy(event)
     // Both ways through the gate end in the same queue: yolo straight through,
     // gallery once the host releases it.
     if (event.type === 'sent') {
@@ -837,6 +869,33 @@ export class Ringmaster {
     if (event.type === 'queued') this.#whiteface.holder?.channel.sendJson({ ...event, type: 'policy:queued' })
     else this.#broadcastJson({ ...event, type: `policy:${event.type}` } as PolicyBroadcast)
     this.#writeStatusLine()
+  }
+
+  // Who released or dropped a held message is not on the event: it is whoever
+  // holds the gate, the host at the terminal or the whiteface in a browser.
+  #recordPolicy(event: PolicyEvent): void {
+    switch (event.type) {
+      case 'sent':
+        return this.#record({ kind: 'sent', who: event.bozo, text: event.text })
+      case 'queued':
+      case 'approved':
+      case 'denied':
+        return this.#record({
+          kind: event.type === 'queued' ? 'held' : event.type,
+          who: event.bozo,
+          ref: `#${event.id}`,
+          text: event.text,
+        })
+      case 'mode':
+        return this.#record({ kind: 'mode', who: 'host', text: event.mode })
+      case 'trust':
+        return this.#record({
+          kind: 'trust',
+          who: this.#bozos.get(event.bozo)?.name ?? null,
+          bozo: event.bozo,
+          text: event.mode ?? 'default',
+        })
+    }
   }
 
   #notifyHost(message: string): void {
@@ -988,6 +1047,7 @@ export class Ringmaster {
         const { bozo } = found
         this.#show(bozo, 'the host closed your connection')
         this.#notifyHost(`c2c: kicked ${bozo.name}`)
+        this.#record({ kind: 'kick', who: bozo.name, bozo: bozo.id })
         return { ok: true, kicked: { id: bozo.id, name: bozo.name } }
       }
       // Per bozo, so one person can be let into the ring without the other
