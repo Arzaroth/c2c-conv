@@ -36,9 +36,17 @@ session.
 
 ## A cloudflared tunnel
 
-`--tunnel` runs `cloudflared` as a child of the ringmaster (`src/tunnel.ts`),
-which dials out and hands back a public `trycloudflare.com` URL. The ringmaster
-still binds loopback. The tunnel dies with the ringmaster. The binary is
+`--tunnel` runs `cloudflared` (`src/tunnel.ts`), which dials out and hands back
+a public `trycloudflare.com` URL. The ringmaster still binds loopback.
+
+It is spawned detached, logging to `cloudflared.log` in the state dir, and the
+URL is read back from that file. That is so `c2c restart` can hand it on: a
+quick tunnel's URL cannot be asked for twice, and the next ringmaster `adopt`s
+the recorded pid once `ps` shows it is still a cloudflared forwarding to the
+same port (pid reuse after a crash is real). A stop kills it; only a handover
+`release`s it. A ringmaster that dies without stopping leaves it running, and
+pointing at a dead port; `c2c stop` kills it from the snapshot
+([../features/restart.md](../features/restart.md)). The binary is
 resolved from `$C2C_CLOUDFLARED`, then `node_modules/.bin/`, then
 `~/.cloudflared/bin/`, then PATH (why no dependency:
 [../decisions.md](../decisions.md#0006-a-bigtop-rather-than-webrtc)).
@@ -116,7 +124,7 @@ cleartext: run it on a machine you control, behind TLS. Deployment:
 ## Sources
 
 - `src/transport/local.ts`, `src/transport/bigtop.ts`, `bigtop/server.ts`
-- `src/tunnel.ts` (`resolveCloudflared`, `parseTunnelUrl`)
+- `src/tunnel.ts` (`resolveCloudflared`, `parseTunnelUrl`, `adopt`, `release`, `isTunnelFor`)
 - `src/cli.ts` (`printInvite`, `tailscaleAddress`, `reachableAddresses`)
 - `types/protocol.d.ts` (`Transport`, `Channel`, `UplinkFrame`, `DownlinkFrame`)
 - `test/local.test.ts`, `test/bigtop.test.ts`, `test/tunnel.test.ts`

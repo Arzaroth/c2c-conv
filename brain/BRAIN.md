@@ -61,6 +61,7 @@ use the indexes.
 | [history.md](features/history.md) | The readable conversation from the transcript JSONL. |
 | [scrollback.md](features/scrollback.md) | A snapshot of the pane plus its history, separate from the mirror. |
 | [zavatta.md](features/zavatta.md) | An AI agent as a bozo, over MCP, under the same gate. |
+| [restart.md](features/restart.md) | A new ringmaster for a running session, after a hotfix or a crash, keeping every link. |
 | [kick-and-rotate.md](features/kick-and-rotate.md) | Showing one bozo out, or killing every link handed out. |
 | [container.md](features/container.md) | Running a headless session from the Docker image. |
 
@@ -82,6 +83,8 @@ use the indexes.
 | What message types exist, and where are they declared? | [architecture/protocol.md](architecture/protocol.md) |
 | How many bozos, how long a message, how big a frame? | [architecture/protocol.md](architecture/protocol.md#limits) |
 | What can a bozo in yolo do to my machine? | [architecture/security.md](architecture/security.md) |
+| How do I ship a hotfix without new links or losing the f2f lane? | [features/restart.md](features/restart.md) |
+| How does an agent see what scrolled off the screen, or older turns? | [features/zavatta.md](features/zavatta.md) |
 | I sent the link to the wrong person. Now what? | [features/kick-and-rotate.md](features/kick-and-rotate.md) |
 | Why can an AI bozo not approve its own messages? | [features/zavatta.md](features/zavatta.md), [decisions.md](decisions.md#0010-zavatta-has-no-host-tools) |
 | Why has the live mirror no scrollback? | [features/scrollback.md](features/scrollback.md) |

@@ -15,5 +15,6 @@ on.
 | [history.md](history.md) | The conversation so far, from the transcript JSONL. |
 | [scrollback.md](scrollback.md) | A snapshot of the pane and its history. |
 | [zavatta.md](zavatta.md) | An agent as a bozo over MCP: the nine tools, `c2c_wait`, paged history. |
+| [restart.md](restart.md) | `c2c restart`: a new ringmaster for a running session, same links, tunnel, lane and queue. |
 | [kick-and-rotate.md](kick-and-rotate.md) | Showing one bozo out; killing every link. |
 | [container.md](container.md) | The Docker image and `compose.yaml`. |

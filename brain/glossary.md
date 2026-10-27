@@ -27,6 +27,11 @@ Vocabulary owned by the tools underneath is deliberately left alone.
   Avoid: ring as a mode name (an alias only), trusted mode.
 - **room default** - the mode a bozo gets when the host has said nothing about
   them in particular. Set by `c2c ctl mode` and `prefix + y`.
+- **handover** - one ringmaster giving its running session to the next, by
+  `c2c restart`: links, tunnel, lane and queues kept, trust dropped.
+  [features/restart.md](features/restart.md). Avoid: reload, resume (an alias).
+- **snapshot** - `snapshot.json`, what a handover or a crash leaves for the next
+  ringmaster. Not the scrollback snapshot, which is a capture of the pane.
 - **trust** - a per-bozo override of the room default, keyed by connection id.
   `default` clears it. Avoid: role, permission.
 - **whiteface** - the clown who runs the ring: the host, from a browser, holding

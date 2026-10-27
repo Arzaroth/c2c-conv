@@ -65,6 +65,16 @@ is found structurally (a `❯` under a rule), never by the footer or a bare mark
 - `history-limit` is set before `new-session`; a pane ignores it afterwards.
 - Bindings resolve `#{session_name}` at keypress: key tables are server-global.
 
+## A restart keeps the session
+
+`c2c restart` moves a running session to a new ringmaster through
+`snapshot.json` (`brain/features/restart.md`). State a bozo would miss on
+reconnect goes in `SessionSnapshot` and through a `restore()` that reapplies the
+caps; per-bozo trust never does. A real stop kills cloudflared and removes the
+snapshot; only a handover releases the tunnel, and SIGTERM is a real stop. A
+message typed into the pane and not yet confirmed stays out of the snapshot, or
+the next ringmaster types it twice.
+
 ## The f2f lane never reaches the pane
 
 Not a flag on the submit path: the lane has no code path to `tmux` beyond

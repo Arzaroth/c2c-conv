@@ -65,8 +65,8 @@ than the bytes.
 One vocabulary (`ControlCommand`), two ways in: the unix socket behind
 `c2c ctl` (one JSON request, one JSON reply, newline-terminated) and a whiteface
 over its bozo socket. `WHITEFACE_COMMANDS` in `src/whiteface.ts` is the subset a
-browser may run: everything except `status` (it carries the token), `stop`
-(ending the session is the host's alone), `rotate` (its reply is the only place
+browser may run: everything except `status` (it carries the token), `stop` and
+`handover` (ending the session or its ringmaster is the host's alone), `rotate` (its reply is the only place
 the new link exists) and `say` (a browser already has the lane).
 
 `c2c ctl` subcommands: `status`, `list`, `who`, `mode <m|toggle>`,
@@ -88,7 +88,9 @@ name; a name matching more than one bozo is refused rather than guessed.
 | bigtop rooms | 64 | `MAX_ROOMS`, `bigtop/server.ts` |
 
 The pending queue and the outbox are the two things a bozo can grow without the
-host agreeing to anything, so neither is unbounded. The f2f caps are about
+host agreeing to anything, so neither is unbounded. A restart restores all three
+through the same caps rather than trusting the snapshot
+([../features/restart.md](../features/restart.md)). The f2f caps are about
 memory: the lane reaches nothing but other browsers.
 
 ## Sources

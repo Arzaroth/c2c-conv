@@ -165,6 +165,21 @@ the client and the ringmaster ship from the same checkout, so new protocol
 messages never meet an old peer. Each release commit says in prose why its bump
 is the size it is.
 
+## Restarting
+
+### 0014 A restart hands over rather than starting fresh
+
+A hotfix used to cost everyone their link and the tunnel URL, and cost the room
+its f2f lane and held queue, because all of it lived in the ringmaster's
+memory. `c2c restart` keeps the tmux session and moves the rest to a new
+process through `snapshot.json`, kept current on every change so a crash can be
+resumed as well as a handover. Two costs were accepted. cloudflared is detached
+rather than a child, because a quick tunnel's URL cannot be asked for twice, so
+a ringmaster that dies uncleanly leaves a public URL pointing at a dead port
+until `c2c stop`. And the whiteface secret is on disk, at 0600 in the 0700 state
+dir next to the token that is already there. Trust stays out: it is per
+connection by design (0009), and a restart drops every connection.
+
 ## Sources
 
 - `src/tmux.ts`, `src/policy.ts`, `src/outbox.ts`, `src/ringmaster.ts`

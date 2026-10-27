@@ -36,6 +36,9 @@ its own messages would collapse the gate
 - It drops the pane byte stream (noise without a terminal emulator) and takes
   the screen from snapshots, which is why the ringmaster answers `refresh`.
 - It strips ANSI before handing anything over, the scrollback included.
+- **It reconnects.** A dropped socket is a ringmaster restarting as often as a
+  session ending ([restart.md](restart.md)), so it retries with backoff (0.5s to
+  8s) and exits only on a `bye`. A tool called in the gap says so.
 - **It says how much there is.** A history page opens with `turns 481-500 of
   500` and where the older ones start; agents given a bare last-20 did not know
   there was more. Numbers count from the oldest turn the ringmaster still holds
@@ -54,6 +57,6 @@ its own messages would collapse the gate
 
 ## Sources
 
-- `src/zavatta.ts` (`BozoLink`, `TOOLS`, `historyPage`, `HISTORY_PAGE`, `SCROLLBACK_LINES`, `WAIT_FOR`, `WAIT_MS`, `MAX_WAIT_MS`, `ANSI`)
+- `src/zavatta.ts` (`BozoLink`, `RETRY_MIN_MS`, `RETRY_MAX_MS`, `TOOLS`, `historyPage`, `HISTORY_PAGE`, `SCROLLBACK_LINES`, `WAIT_FOR`, `WAIT_MS`, `MAX_WAIT_MS`, `ANSI`)
 - `src/cli.ts` (`cmdZavatta`)
 - `test/zavatta.test.ts`

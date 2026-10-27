@@ -10,7 +10,12 @@
   ([../features/whiteface.md](../features/whiteface.md)).
 - State lives in `~/.c2c-conv/<session>/` at mode 0700; the token is never
   written anywhere world-readable. `ringmaster.json` holds it and is unlinked on
-  stop.
+  stop. `snapshot.json` (0600) holds it too, with the whiteface secret, the held
+  queue and the f2f lane, so `c2c restart` can bring them back; it is removed
+  on stop ([../features/restart.md](../features/restart.md)).
+- **A tunnel can outlive its ringmaster** now: a handover leaves it for the
+  next one, and a crash leaves it forwarding to a dead port until `c2c stop` or
+  `c2c restart`. Nothing answers behind it, but the URL is still public.
 - The host's own control path is the unix socket and the tmux prefix keys, both
   reachable only from the machine itself.
 
