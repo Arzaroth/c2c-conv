@@ -147,3 +147,20 @@ test('a dialog hint left in the transcript above the input box is not a dialog',
 test('a dialog hint with no input box drawn is still a dialog', () => {
   assert.equal(classifyScreen(screen('● Usage limit reached · esc to cancel', '', '  waiting')), 'dialog')
 })
+
+// /model answers in one line, so its echo sat in the same last eight lines as
+// the input box, was taken for the box, and the session read as unknown with
+// the outbox waiting behind it for good.
+test('a short turn echoed just above the input box does not hide the box', () => {
+  const shortTurn = screen(
+    '❯ /model',
+    '  ⎿  Set model to Haiku 5.5 and saved as your default for new sessions',
+    '',
+    RULE,
+    '❯ ',
+    RULE,
+    '  ⏵⏵ auto mode on (shift+tab to cycle)',
+  )
+  assert.equal(classifyScreen(shortTurn), 'prompt')
+  assert.equal(readPromptBox(shortTurn), '')
+})
