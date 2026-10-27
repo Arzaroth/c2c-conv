@@ -171,9 +171,17 @@ function unpaint(line: string): string {
 // the box's top rule. Prompt markers in the scrollback are the echo of previous
 // turns and have no rule above them, so scanning for a bare marker would read
 // the last submitted message back as if it were an unsent draft.
+// A short turn (a slash command) leaves its echo close enough to the bottom to
+// share the window with the box, so the marker taken is the lowest one.
 function promptBoxLine(lines: string[]): number {
   const from = Math.max(0, lines.length - 8)
-  const index = lines.findIndex((line, i) => i >= from && /^\s*❯/.test(line))
+  let index = -1
+  for (let i = lines.length - 1; i >= from; i--) {
+    if (/^\s*❯/.test(lines[i])) {
+      index = i
+      break
+    }
+  }
   if (index <= from || !/^\s*─{20,}/.test(lines[index - 1])) return -1
   return index
 }
