@@ -7,6 +7,8 @@
 // message someone was told was sent, that never arrived, is the one failure the
 // design cannot afford.
 
+import { MAX_TEXT } from './policy.js'
+
 export const MAX_OUTBOX = 50
 
 // How long to sit before looking at the pane again while the head is blocked.
@@ -83,6 +85,21 @@ export class Outbox {
     this.#emit({ type: 'changed' })
     this.#pump()
     return entry
+  }
+
+  // What an earlier ringmaster for this session had cleared and not yet
+  // delivered. Nothing was typed for any of these, so they go in from the top.
+  restore(entries: OutboxEntry[]): void {
+    for (const entry of entries) {
+      if (this.#queue.length >= MAX_OUTBOX) break
+      const id = Number(entry?.id)
+      if (typeof entry?.text !== 'string' || !entry.text || entry.text.length > MAX_TEXT || !(id > 0)) continue
+      this.#queue.push({ id, text: entry.text, bozo: entry.bozo, at: entry.at, state: 'waiting' })
+      this.#nextId = Math.max(this.#nextId, id + 1)
+    }
+    if (!this.#queue.length) return
+    this.#emit({ type: 'changed' })
+    this.#pump()
   }
 
   // The one in flight is already going down the wire, so it cannot be taken

@@ -29,6 +29,16 @@ export class Farce {
     return msg
   }
 
+  // What an earlier ringmaster for this session had said, read back from its
+  // snapshot, so the caps are applied again rather than trusted.
+  restore(msgs: F2fMessage[]): void {
+    this.#msgs = msgs
+      .filter((msg) => typeof msg?.text === 'string' && typeof msg.from === 'string')
+      .slice(-F2F_HISTORY)
+      .map((msg) => ({ ...msg, text: normalize(msg.text).slice(0, MAX_F2F_TEXT) }))
+    this.#nextId = Math.max(0, ...this.#msgs.map((msg) => Number(msg.id) || 0)) + 1
+  }
+
   history(limit?: number): F2fMessage[] {
     return limit && limit > 0 ? this.#msgs.slice(-limit) : [...this.#msgs]
   }

@@ -122,6 +122,19 @@ export class Policy {
     return { action: 'send', key }
   }
 
+  // Held messages an earlier ringmaster for this session had not released.
+  // They keep their ids, so a host who saw #4 can still approve #4.
+  restore(entries: PendingEntry[]): void {
+    for (const entry of entries) {
+      if (this.#pending.size >= MAX_PENDING) break
+      const text = normalize(entry?.text)
+      const id = Number(entry?.id)
+      if (!text || text.length > MAX_TEXT || !(id > 0)) continue
+      this.#pending.set(id, { id, text, bozo: entry.bozo, at: entry.at })
+      this.#nextId = Math.max(this.#nextId, id + 1)
+    }
+  }
+
   list(): PendingEntry[] {
     return [...this.#pending.values()]
   }
