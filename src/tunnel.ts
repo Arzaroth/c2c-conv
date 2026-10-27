@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events'
-import { spawn, type ChildProcess } from 'node:child_process'
-import { existsSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
+import { closeSync, existsSync, openSync, readFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 // cloudflared announces a quick tunnel in a banner on stderr:
@@ -41,64 +41,93 @@ export function resolveCloudflared(cwd: string = process.cwd()): string {
   return 'cloudflared'
 }
 
+// pid reuse is real after a crash or a reboot, so a recorded pid is only
+// adopted if it is still a cloudflared forwarding to this port.
+export function isTunnelFor(pid: number, port: number): boolean {
+  try {
+    process.kill(pid, 0)
+    const args = execFileSync('ps', ['-p', String(pid), '-o', 'args='], { encoding: 'utf8', timeout: 2000 })
+    return args.includes('tunnel') && args.includes(`127.0.0.1:${port}`)
+  } catch {
+    return false
+  }
+}
+
+// cloudflared is detached and logs to a file, so a ringmaster restarting
+// in place can hand the running tunnel, and the URL bozos already have, to
+// the next one. A quick tunnel's URL cannot be asked for twice.
 export class Tunnel extends EventEmitter {
   #port: number
   #bin: string
+  #log: string
   #child: ChildProcess | null = null
+  #watch: NodeJS.Timeout | undefined
   #stopped = false
 
   url: string | null = null
+  pid: number | null = null
 
-  constructor({ port, bin }: { port: number; bin?: string }) {
+  constructor({ port, bin, log }: { port: number; bin?: string; log?: string }) {
     super()
     this.#port = port
     this.#bin = bin ?? resolveCloudflared()
+    this.#log = log ?? join(tmpdir(), `c2c-cloudflared-${process.pid}-${port}.log`)
   }
 
   start(timeoutMs = 30000): Promise<string> {
     return new Promise<string>((resolve, reject) => {
       let child: ChildProcess
+      let fd: number
       try {
+        fd = openSync(this.#log, 'w', 0o600)
         child = spawn(this.#bin, [
           'tunnel', '--no-autoupdate',
           '--url', `http://127.0.0.1:${this.#port}`,
-        ], { stdio: ['ignore', 'pipe', 'pipe'] })
+        ], { detached: true, stdio: ['ignore', fd, fd] })
       } catch (err) {
         reject(err)
         return
       }
+      closeSync(fd)
+      child.unref()
       this.#child = child
+      this.pid = child.pid ?? null
 
+      let offset = 0
+      let partial = ''
+      const scan = () => {
+        if (this.url) return
+        let chunk: Buffer
+        try {
+          chunk = readFileSync(this.#log).subarray(offset)
+        } catch {
+          return
+        }
+        offset += chunk.length
+        const lines = (partial + chunk.toString('utf8')).split('\n')
+        partial = lines.pop() ?? ''
+        for (const line of lines) {
+          const found = parseTunnelUrl(line)
+          if (!found) continue
+          this.url = found
+          done()
+          this.emit('url', found)
+          resolve(found)
+          return
+        }
+      }
+      const poll = setInterval(scan, 200)
       const timer = setTimeout(() => {
+        done()
         reject(new Error('cloudflared did not announce a URL in time'))
       }, timeoutMs)
-
-      const onLine = (line: string) => {
-        if (this.url) return
-        const found = parseTunnelUrl(line)
-        if (!found) return
-        this.url = found
+      const done = () => {
+        clearInterval(poll)
         clearTimeout(timer)
-        this.emit('url', found)
-        resolve(found)
-      }
-
-      for (const stream of [child.stdout, child.stderr]) {
-        if (!stream) continue
-        let buffer = ''
-        stream.setEncoding('utf8')
-        stream.on('data', (chunk: string) => {
-          buffer += chunk
-          let index: number
-          while ((index = buffer.indexOf('\n')) !== -1) {
-            onLine(buffer.slice(0, index))
-            buffer = buffer.slice(index + 1)
-          }
-        })
       }
 
       child.on('error', (err: NodeJS.ErrnoException) => {
-        clearTimeout(timer)
+        done()
         // The npm packages that "provide" cloudflared only download this same
         // Go binary, and Cloudflare publishes no checksums to verify it against,
         // so a signed distro package is the better way to get it.
@@ -116,18 +145,50 @@ export class Tunnel extends EventEmitter {
 
       child.on('exit', (code: number | null) => {
         this.#child = null
-        if (!this.#stopped) {
-          clearTimeout(timer)
-          this.emit('closed', code)
-          if (!this.url) reject(new Error(`cloudflared exited with code ${code}`))
-        }
+        this.pid = null
+        if (this.#stopped) return
+        scan()
+        done()
+        this.emit('closed', code)
+        if (!this.url) reject(new Error(`cloudflared exited with code ${code}`))
       })
     })
   }
 
+  // A tunnel some earlier ringmaster started. It is not a child of this
+  // process, so its exit is noticed by asking rather than told.
+  adopt({ pid, url }: { pid: number; url: string }): boolean {
+    if (!isTunnelFor(pid, this.#port)) return false
+    this.pid = pid
+    this.url = url
+    this.#watch = setInterval(() => {
+      if (isTunnelFor(pid, this.#port)) return
+      clearInterval(this.#watch)
+      this.pid = null
+      this.url = null
+      if (!this.#stopped) this.emit('closed', null)
+    }, 2000)
+    this.#watch.unref()
+    return true
+  }
+
+  // Let go without killing it: the next ringmaster adopts it.
+  release(): void {
+    this.#stopped = true
+    clearInterval(this.#watch)
+    this.#child?.removeAllListeners('exit')
+    this.#child = null
+  }
+
   stop(): void {
     this.#stopped = true
-    this.#child?.kill()
+    clearInterval(this.#watch)
+    if (this.pid) {
+      try {
+        process.kill(this.pid)
+      } catch {}
+    }
     this.#child = null
+    this.pid = null
   }
 }
