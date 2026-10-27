@@ -126,6 +126,16 @@ tunnel dies with the session rather than outliving it. `c2c restart` is the one
 exception: it hands the running tunnel to the next ringmaster, so the URL stays
 the same.
 
+## What happened
+
+Everything said in the f2f lane, every message sent, held, released, dropped
+and delivered, with who sent it and its id, keys pressed, mode and trust
+changes, and who came and went are recorded in `~/.c2c-conv/<session>/ledger.sqlite`.
+It is kept after `c2c stop`. `c2c log` reads it: `--f2f` for the lane alone,
+`--grep` for a phrase, `-n` for how many rows. claude cannot tell who typed a
+turn; this can. It needs node 22.13 or later and is simply off before that.
+Details in [brain/features/ledger.md](brain/features/ledger.md).
+
 ## Restarting without losing anyone
 
 `c2c restart` gives a running session a new ringmaster: after you rebuild c2c
@@ -341,6 +351,7 @@ safe. Elevate for people you would hand your actual keyboard to.
 | `c2c ctl <who\|trust WHO gallery\|yolo\|default>` | the roster, and trust one bozo at a time |
 | `c2c ctl <outbox\|cancel ID\|cancel-all\|bump ID\|say TEXT>` | the outbox and the lane |
 | `c2c ctl <kick ID\|rotate>` | show one bozo out, or reset the link for everybody |
+| `c2c log [-s NAME] [--f2f] [--grep TEXT] [-n N]` | what happened, kept after stop |
 | `c2c restart [-s NAME]` | a new ringmaster for the running session, same links and tunnel |
 | `c2c stop [-s NAME]` | tear it down |
 | `c2c bigtop [-p PORT] [--bind ADDR]` | run a bigtop |

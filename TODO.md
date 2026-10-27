@@ -4,7 +4,8 @@ What is left, and why each thing is worth doing. Grounded in the code as it
 stands at v0.3.4: the architecture is finished for what it does, so almost
 nothing here is plumbing.
 
-Done since v0.3.4: `c2c restart`, a new ringmaster for a running session with
+Done since v0.3.4: the ledger and `c2c log`, a SQLite record of the lane, the
+gate and the outbox kept after stop; `c2c restart`, a new ringmaster for a running session with
 the links, the tunnel, the lane and both queues kept; zavatta's
 `c2c_scrollback` and paged `c2c_history`. Done in v0.3.4: a dialog hint left in the transcript above the input box no
 longer wedges the outbox. Done in v0.3.3: per-bozo trust, so one person can be
@@ -35,28 +36,16 @@ open-work list of its own, so there is one of it rather than two.
 - [ ] `deploy/README.md` installs and rebuilds with `npm ci`, which fails: the
       repo has a `pnpm-lock.yaml` and no `package-lock.json`.
 
-## Attribution and an audit log
+## History labelled by bozo
 
-**S.** Write `~/.c2c-conv/<session>/audit.jsonl`: every submission, approval,
-denial, key press, mode change, trust change and whiteface claim, with who and
-when. Label turns in the history panel with the bozo who sent them.
+**S.** The [ledger](brain/features/ledger.md) knows who sent each delivered
+message and when it landed. Label the history panel's user turns with it.
 
-*Why.* The design guarantees Claude cannot tell a bozo's message from the host's,
-which is correct and is the whole point. It also means nobody can afterwards. For
-a session that spent any time in yolo, the ringmaster's `console.log` lines are
-the only record that anything happened, and `ringmaster.log` is not a record, it
-is a debug stream.
+*Risk.* Do not match on the transcript text: `normalize()` in `src/policy.ts`
+collapses whitespace before injection, so a turn and its submission differ.
+Match on order and time from the `delivered` rows instead.
 
-*Risk.* Do not try to reconstruct this from the transcript JSONL. `normalize()`
-in `src/policy.ts` collapses whitespace before injection, so matching a user turn
-back to a submission is fuzzy. Log at the ringmaster, where the attribution is
-already in hand.
-
-The outbox is the other half of this: it already knows who sent what and when
-it actually landed, which is the attribution the transcript cannot give you.
-
-*Touches:* `src/policy.ts` events, `src/outbox.ts` events, `src/ringmaster.ts`,
-`src/transcript.ts`, `web/client.ts`.
+*Touches:* `src/ringmaster.ts`, `src/transcript.ts`, `web/client.ts`.
 
 ## `--cols` and `--rows`
 
@@ -89,6 +78,6 @@ currently discards history rather than rolling it.
 
 By value against effort:
 
-1. Attribution and an audit log - closes the hole the security model opens
+1. History labelled by bozo
 2. `--cols` / `--rows`
 3. Replay

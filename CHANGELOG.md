@@ -11,6 +11,12 @@ than adding to it.
 
 ### Added
 
+- **The ledger and `c2c log`.** The f2f lane, every message sent, held,
+  released, dropped and delivered (with who sent it and its id), keys pressed,
+  mode and trust changes, joins and leaves are recorded in
+  `~/.c2c-conv/<session>/ledger.sqlite` and kept after stop. `c2c log` reads it,
+  with `--f2f`, `--kind`, `--grep` and `-n`. Uses the SQLite built into node
+  22.13 and later; off on older nodes. Capped at 200000 rows per session.
 - **`c2c restart`** (alias `resume`) gives a running session a new ringmaster,
   after a hotfix or a crash. Every link handed out keeps working, the whiteface
   link and the cloudflared URL included, and the f2f lane, the held queue and
