@@ -28,6 +28,9 @@ export interface WaitResult {
 export const WAIT_MS = 60_000
 export const MAX_WAIT_MS = 300_000
 
+export const RETRY_MIN_MS = 500
+export const RETRY_MAX_MS = 8000
+
 export const HISTORY_PAGE = 20
 export const SCROLLBACK_LINES = 500
 
@@ -99,6 +102,12 @@ export class BozoLink extends EventEmitter {
   circus: RosterEntry[] = []
   roomMode: Mode = 'gallery'
   connected = false
+  // A dropped socket is a ringmaster restarting as often as a session ending,
+  // and only a bye says which. An MCP server that exited on the first would
+  // take the agent's tools away for good.
+  #joined = false
+  #ended = false
+  #retryMs = RETRY_MIN_MS
 
   constructor({ url, name = 'zavatta' }: { url: string; name?: string }) {
     super()
@@ -132,7 +141,13 @@ export class BozoLink extends EventEmitter {
         if (msg.type === 'hoink') {
           clearTimeout(timer)
           this.connected = true
+          this.#joined = true
+          this.#retryMs = RETRY_MIN_MS
           resolve(this)
+        }
+        if (msg.type === 'bye') {
+          this.#ended = true
+          this.emit('ended', msg.text)
         }
         this.emit('message', msg)
       })
@@ -142,9 +157,22 @@ export class BozoLink extends EventEmitter {
         clearTimeout(timer)
         this.emit('closed')
         reject(new Error('connection closed before the ringmaster hoinked back'))
+        if (this.#joined && !this.#ended) this.#reconnect()
       })
       socket.addEventListener('error', () => {})
     })
+  }
+
+  #reconnect(): void {
+    const delay = this.#retryMs
+    this.#retryMs = Math.min(this.#retryMs * 2, RETRY_MAX_MS)
+    setTimeout(() => {
+      if (this.#ended) return
+      this.connect().then(
+        () => this.emit('reconnected'),
+        () => {},
+      )
+    }, delay)
   }
 
   #apply(msg: ServerMessage): void {
@@ -178,7 +206,11 @@ export class BozoLink extends EventEmitter {
   }
 
   #send(payload: BozoMessage): void {
-    if (this.#socket?.readyState !== WebSocket.OPEN) throw new Error('not connected to the session')
+    if (this.#socket?.readyState !== WebSocket.OPEN) {
+      throw new Error(this.#joined && !this.#ended
+        ? 'not connected to the session right now - reconnecting, try again in a moment'
+        : 'not connected to the session')
+    }
     this.#socket.send(JSON.stringify(payload))
   }
 
@@ -269,6 +301,7 @@ export class BozoLink extends EventEmitter {
   }
 
   close(): void {
+    this.#ended = true
     this.#socket?.close()
   }
 }
