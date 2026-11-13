@@ -31,10 +31,12 @@ const MIN_TOKEN = 8
 const ROOM_NAME = /^[\w.-]+$/
 
 // A room: whoever claimed it, the token they fixed it with, and everyone
-// currently riding along. A reserved room comes from the rooms file: its token
-// is the operator's, it outlives its host, and bozos may wait in it.
+// currently riding along. A reserved room comes from the rooms file: only a host
+// holding its key may claim it, it outlives its host, and bozos may wait in it.
+// Its token is whatever its host last brought, and null until a host has come.
 interface Room {
-  token: string
+  token: string | null
+  key: string | null
   bozos: Map<string, WebSocket>
   host: WebSocket | null
   reserved: boolean
@@ -71,19 +73,26 @@ function heartbeat(ws: WebSocket, intervalMs = HEARTBEAT_MS): NodeJS.Timeout {
 }
 
 export async function loadRooms(path: string): Promise<Map<string, string>> {
-  const parsed: unknown = JSON.parse(await readFile(path, 'utf8'))
+  let parsed: unknown
+  // node quotes the offending text in a JSON error, and here that text is keys.
+  try {
+    parsed = JSON.parse(await readFile(path, 'utf8'))
+  } catch (err) {
+    if (err instanceof SyntaxError) throw new Error(`${path}: not valid JSON`)
+    throw err
+  }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error(`${path}: expected an object of room name to token`)
+    throw new Error(`${path}: expected an object of room name to room key`)
   }
   const rooms = new Map<string, string>()
-  for (const [name, token] of Object.entries(parsed)) {
+  for (const [name, key] of Object.entries(parsed)) {
     if (!validRoom(name)) throw new Error(`${path}: bad room name ${JSON.stringify(name)}`)
-    if (!validToken(token)) throw new Error(`${path}: the token for ${name} must be 8 to 256 characters`)
-    rooms.set(name, token)
+    if (!validToken(key)) throw new Error(`${path}: the key for ${name} must be 8 to 256 characters`)
+    rooms.set(name, key)
   }
   if (!rooms.size) throw new Error(`${path}: no rooms`)
   if ((await stat(path)).mode & 0o077) {
-    console.warn(`c2c bigtop: ${path} is readable by others, and it holds every room's token`)
+    console.warn(`c2c bigtop: ${path} is readable by others, and it holds every room's key`)
   }
   return rooms
 }
@@ -98,8 +107,8 @@ export class Bigtop {
   constructor({ heartbeatMs = HEARTBEAT_MS, rooms }: { heartbeatMs?: number; rooms?: Map<string, string> } = {}) {
     this.heartbeatMs = heartbeatMs
     this.#closed = rooms !== undefined
-    for (const [name, token] of rooms ?? []) {
-      this.#rooms.set(name, { token, bozos: new Map(), host: null, reserved: true })
+    for (const [name, key] of rooms ?? []) {
+      this.#rooms.set(name, { token: null, key, bozos: new Map(), host: null, reserved: true })
     }
   }
 
@@ -167,21 +176,26 @@ export class Bigtop {
     if (!validRoom(room)) return reject(socket, 400, 'bad room name')
     if (!validToken(token)) return reject(socket, 400, 'token too short')
 
-    if (url.pathname === '/uplink') return this.#acceptHost(req, socket, room, token)
+    if (url.pathname === '/uplink') return this.#acceptHost(req, socket, room, token, url.searchParams.get('k'))
     if (url.pathname === '/bozo') return this.#acceptGuest(req, socket, room, token)
     return reject(socket, 404, 'unknown endpoint')
   }
 
-  #acceptHost(req: IncomingMessage, socket: Duplex, roomId: string, token: string): void {
+  #acceptHost(req: IncomingMessage, socket: Duplex, roomId: string, token: string, key: string | null): void {
     const existing = this.#rooms.get(roomId)
 
     if (!existing && this.#closed) return reject(socket, 404, 'no such room')
+    // Every bozo holds the token, so in a room that outlives its host the token
+    // cannot also be what proves who the host is.
+    if (existing?.reserved && !(key && existing.key && timingSafeEqualString(key, existing.key))) {
+      return reject(socket, 401, 'bad room key')
+    }
     // A room is claimed by the first host and its token is fixed at that point,
     // so a second host cannot take the room over or probe for the secret.
     if (existing?.host && !existing.host.closed) {
       return reject(socket, 409, 'room already has a host')
     }
-    if (existing && !timingSafeEqualString(token, existing.token)) {
+    if (existing && !existing.reserved && existing.token !== null && !timingSafeEqualString(token, existing.token)) {
       return reject(socket, 401, 'bad token')
     }
     if (!existing && this.#rooms.size >= MAX_ROOMS) {
@@ -191,7 +205,8 @@ export class Bigtop {
     const ws = handshake(req, socket)
     if (!ws) return
 
-    const room = existing ?? { token, bozos: new Map(), host: null, reserved: false }
+    const room = existing ?? { token, key: null, bozos: new Map(), host: null, reserved: false }
+    room.token = token
     room.host = ws
     this.#rooms.set(roomId, room)
     heartbeat(ws, this.heartbeatMs)
@@ -228,7 +243,7 @@ export class Bigtop {
     const room = this.#rooms.get(roomId)
     if (!room) return reject(socket, 404, this.#closed ? 'no such room' : 'no host in this room')
     const hosted = room.host !== null && !room.host.closed
-    if (!hosted && !room.reserved) return reject(socket, 404, 'no host in this room')
+    if (room.token === null || (!hosted && !room.reserved)) return reject(socket, 404, 'no host in this room')
     if (!timingSafeEqualString(token, room.token)) return reject(socket, 401, 'bad token')
     if (room.bozos.size >= MAX_BOZOS) return reject(socket, 429, 'the clown car is full')
 

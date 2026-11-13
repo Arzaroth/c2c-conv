@@ -39,6 +39,7 @@ export class BigtopTransport extends EventEmitter implements Transport {
   #url: string
   #room: string
   #token: string
+  #key: string | undefined
   #socket: WebSocket | null = null
   #bozos = new Map<string, BigtopBozo>()
   #backoff = BACKOFF_MIN
@@ -46,11 +47,12 @@ export class BigtopTransport extends EventEmitter implements Transport {
   #stopped = false
   #timer: NodeJS.Timeout | undefined
 
-  constructor({ url, room, token }: { url: string; room: string; token: string }) {
+  constructor({ url, room, token, key }: { url: string; room: string; token: string; key?: string }) {
     super()
     this.#url = url.replace(/\/$/, '')
     this.#room = room
     this.#token = token
+    this.#key = key
   }
 
   get bozoUrl(): string {
@@ -116,7 +118,8 @@ export class BigtopTransport extends EventEmitter implements Transport {
   #connect(): void {
     if (this.#stopped) return
 
-    const url = `${this.#url}/uplink?room=${encodeURIComponent(this.#room)}&t=${encodeURIComponent(this.#token)}`
+    const key = this.#key ? `&k=${encodeURIComponent(this.#key)}` : ''
+    const url = `${this.#url}/uplink?room=${encodeURIComponent(this.#room)}&t=${encodeURIComponent(this.#token)}${key}`
     let socket: WebSocket
     try {
       socket = new WebSocket(url)
@@ -192,7 +195,7 @@ export class BigtopTransport extends EventEmitter implements Transport {
       this.emit('status', {
         connected: false,
         hint: response.ok
-          ? 'bigtop is reachable but refused the uplink - check the room name and token'
+          ? 'bigtop is reachable but refused the uplink - check the room name, the token and the room key'
           : `bigtop answered ${response.status} on /healthz`,
       })
     } catch (err) {

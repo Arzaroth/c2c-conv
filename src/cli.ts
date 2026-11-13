@@ -37,6 +37,7 @@ interface Options {
   room?: string
   token?: string
   rooms?: string
+  roomKey?: string
   url?: string
   name?: string
   outbox?: string
@@ -70,6 +71,7 @@ function parseArgs(argv: string[]): { opts: Options; rest: string[]; passthrough
     else if (arg === '--room') opts.room = argv[++i]
     else if (arg === '--token') opts.token = argv[++i]
     else if (arg === '--rooms') opts.rooms = argv[++i]
+    else if (arg === '--room-key') opts.roomKey = argv[++i]
     else if (arg === '--url') opts.url = argv[++i]
     else if (arg === '--name') opts.name = argv[++i]
     else if (arg === '--outbox') opts.outbox = argv[++i]
@@ -145,8 +147,13 @@ async function cmdHost({ opts, passthrough }: { opts: Options; passthrough: stri
 
   // A bigtop refuses a short token, and the uplink would just retry forever
   // with nothing on screen explaining why.
-  if (opts.token && opts.token.length < 8) {
-    console.error('--token must be at least 8 characters: it is the only thing protecting the session')
+  if (opts.token && (opts.token.length < 8 || opts.token.length > 256)) {
+    console.error('--token must be 8 to 256 characters: it is the only thing protecting the session')
+    process.exit(1)
+  }
+  const roomKey = opts.roomKey ?? process.env.C2C_ROOM_KEY
+  if (roomKey !== undefined && (roomKey.length < 8 || roomKey.length > 256)) {
+    console.error('the room key must be 8 to 256 characters, like the one in the bigtop\'s rooms file')
     process.exit(1)
   }
 
@@ -192,6 +199,7 @@ async function cmdHost({ opts, passthrough }: { opts: Options; passthrough: stri
     C2C_TOKEN: token,
     C2C_BIGTOP_URL: opts.bigtop ?? '',
     C2C_BIGTOP_ROOM: opts.room ?? opts.session,
+    C2C_BIGTOP_KEY: roomKey ?? '',
     C2C_TUNNEL: opts.tunnel ? '1' : '',
     C2C_MODE: opts.mode ?? '',
     C2C_WHITEFACE: whiteface,
@@ -540,7 +548,9 @@ async function cmdRingmaster(): Promise<void> {
     port: Number(process.env.C2C_PORT),
     host: process.env.C2C_BIND,
     token: process.env.C2C_TOKEN,
-    bigtop: bigtopUrl ? { url: bigtopUrl, room: process.env.C2C_BIGTOP_ROOM ?? session } : null,
+    bigtop: bigtopUrl
+      ? { url: bigtopUrl, room: process.env.C2C_BIGTOP_ROOM ?? session, key: process.env.C2C_BIGTOP_KEY || undefined }
+      : null,
     tunnel: process.env.C2C_TUNNEL === '1',
     mode: process.env.C2C_MODE,
     whiteface: process.env.C2C_WHITEFACE,
@@ -778,7 +788,7 @@ function usage(): void {
 usage:
   c2c host [-s NAME] [-p PORT] [--bind ADDR] [--cwd DIR] [--no-attach] [--tunnel]
            [--yolo | --mode gallery|yolo] [--outbox drain|through]
-           [--bigtop wss://HOST] [--room NAME] [--token SECRET] [-- <claude args>]
+           [--bigtop wss://HOST] [--room NAME] [--room-key KEY] [--token SECRET] [-- <claude args>]
   c2c attach [-s NAME]
   c2c invite [-s NAME]
   c2c say <text>   post a line to the f2f lane, which claude never sees
@@ -809,8 +819,10 @@ transports:
   --tunnel         public URL via cloudflared, nothing to deploy or forward
 
 a bigtop:
-  --rooms FILE     serve only the rooms in FILE ({"room": "token"}); each one
-                   outlives its host, and bozos wait in it for the host to dial in
+  --rooms FILE     serve only the rooms in FILE ({"room": "room key"}); only a
+                   host with the key claims one, it outlives its host, and bozos
+                   wait in it for the host to dial in (host: --room-key or
+                   C2C_ROOM_KEY)
 
 state lives in ${stateDir('<session>')}`)
 }

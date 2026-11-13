@@ -56,7 +56,7 @@ interface RingmasterOptions {
   port: number
   host?: string
   token?: string
-  bigtop?: { url: string; room: string; token?: string } | null
+  bigtop?: { url: string; room: string; token?: string; key?: string } | null
   tunnel?: boolean
   mode?: string
   whiteface?: string
@@ -101,7 +101,7 @@ export class Ringmaster {
   #wantsTunnel = false
   #whiteface: Whiteface<Bozo>
   #bind: string
-  #bigtopOpts: { url: string; room: string } | null
+  #bigtopOpts: { url: string; room: string; key?: string } | null
   #restore: RingmasterOptions['restore']
   #persistTimer: NodeJS.Timeout | undefined
   #handingOver = false
@@ -117,7 +117,7 @@ export class Ringmaster {
   ) {
     this.#wantsTunnel = tunnel
     this.#bind = host
-    this.#bigtopOpts = bigtop?.url ? { url: bigtop.url, room: bigtop.room } : null
+    this.#bigtopOpts = bigtop?.url ? { url: bigtop.url, room: bigtop.room, key: bigtop.key || undefined } : null
     this.#restore = restore
     this.#outbox = new Outbox({ mode: outboxMode, send: (entry) => this.#deliver(entry) })
     this.#whiteface = new Whiteface<Bozo>(whiteface)
@@ -133,6 +133,7 @@ export class Ringmaster {
         url: bigtop.url,
         room: bigtop.room,
         token: bigtop.token || this.#token,
+        key: bigtop.key || undefined,
       })
       this.#transports.push(this.#bigtop)
     }

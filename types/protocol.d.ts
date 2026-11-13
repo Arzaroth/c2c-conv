@@ -348,7 +348,7 @@ interface SessionSnapshot {
   bind: string
   token: string
   whiteface: string | null
-  bigtop: { url: string; room: string } | null
+  bigtop: { url: string; room: string; key?: string } | null
   tunnel: { wanted: boolean; pid: number | null; url: string | null }
   mode: Mode
   outboxMode: OutboxMode

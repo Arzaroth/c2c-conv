@@ -285,6 +285,10 @@ test('a room fills up at MAX_BOZOS', async () => {
   car.close()
 })
 
+const ROOM_KEY = 'standup-room-key'
+const hostIn = (url: string) => `${url}/uplink?room=standup&t=standup-token&k=${ROOM_KEY}`
+const bozoIn = (url: string) => `${url}/bozo?room=standup&t=standup-token`
+
 async function reservedBigtop(rooms: Record<string, string>): Promise<{ bigtop: Bigtop; url: string }> {
   const reserved = new Bigtop({ rooms: new Map(Object.entries(rooms)) })
   const address = await reserved.listen(0, '127.0.0.1')
@@ -292,31 +296,49 @@ async function reservedBigtop(rooms: Record<string, string>): Promise<{ bigtop: 
 }
 
 function closedOf(peer: Peer): Promise<unknown> {
-  return new Promise((resolve) => peer.ws.addEventListener('close', resolve))
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('timed out waiting for a close')), 2000)
+    peer.ws.addEventListener('close', () => {
+      clearTimeout(timer)
+      resolve(undefined)
+    })
+  })
+}
+
+// A reserved room learns its token from its host, so bozos can only wait in one
+// a host has been to since the bigtop started.
+async function visited(url: string): Promise<void> {
+  const host = await open(hostIn(url))
+  const gone = closedOf(host)
+  host.close()
+  await gone
+  await new Promise((r) => setTimeout(r, 20))
 }
 
 test('a bigtop with a rooms file serves no other room', async () => {
-  const { bigtop: reserved, url } = await reservedBigtop({ standup: 'standup-token' })
-  await assert.rejects(() => open(`${url}/uplink?room=squat&t=secret-token`))
+  const { bigtop: reserved, url } = await reservedBigtop({ standup: ROOM_KEY })
+  await assert.rejects(() => open(`${url}/uplink?room=squat&t=secret-token&k=${ROOM_KEY}`))
   await assert.rejects(() => open(`${url}/bozo?room=squat&t=secret-token`))
   assert.deepEqual([...reserved.rooms.keys()], ['standup'])
   reserved.close()
 })
 
-// The point of reserving a room: a stranger reaching it first fixes nothing.
-test('a reserved room refuses a host without its token', async () => {
-  const { bigtop: reserved, url } = await reservedBigtop({ standup: 'standup-token' })
-  await assert.rejects(() => open(`${url}/uplink?room=standup&t=squatter-token`))
-  const host = await open(`${url}/uplink?room=standup&t=standup-token`)
+test('a reserved room refuses a host without its key', async () => {
+  const { bigtop: reserved, url } = await reservedBigtop({ standup: ROOM_KEY })
+  await assert.rejects(() => open(`${url}/uplink?room=standup&t=standup-token`))
+  await assert.rejects(() => open(`${url}/uplink?room=standup&t=standup-token&k=not-the-key`))
+  const host = await open(hostIn(url))
   host.close()
   reserved.close()
 })
 
-test('a bozo waits in a reserved room before its host dials in', async () => {
-  const { bigtop: reserved, url } = await reservedBigtop({ standup: 'standup-token' })
+test('a bozo is refused until a host has brought the room its token', async () => {
+  const { bigtop: reserved, url } = await reservedBigtop({ standup: ROOM_KEY })
+  await assert.rejects(() => open(bozoIn(url)))
+  await visited(url)
   await assert.rejects(() => open(`${url}/bozo?room=standup&t=wrong-token`))
 
-  const bozo = await open(`${url}/bozo?room=standup&t=standup-token`)
+  const bozo = await open(bozoIn(url))
   assert.deepEqual(await bozo.next(), { type: 'notice', text: 'waiting for the host to dial in' })
 
   bozo.close()
@@ -326,16 +348,17 @@ test('a bozo waits in a reserved room before its host dials in', async () => {
 // A waiting bozo already hoinked into the void, and the ringmaster answers
 // nobody who has not hoinked to it. Dropping it is what makes it say hello again.
 test('the host dialling in drops waiting bozos so they rejoin it', async () => {
-  const { bigtop: reserved, url } = await reservedBigtop({ standup: 'standup-token' })
-  const waiting = await open(`${url}/bozo?room=standup&t=standup-token`)
+  const { bigtop: reserved, url } = await reservedBigtop({ standup: ROOM_KEY })
+  await visited(url)
+  const waiting = await open(bozoIn(url))
   await waiting.next()
 
   const dropped = closedOf(waiting)
-  const host = await open(`${url}/uplink?room=standup&t=standup-token`)
+  const host = await open(hostIn(url))
   assert.deepEqual(await waiting.next(), { type: 'notice', text: 'the host is here, joining' })
   await dropped
 
-  const rejoined = await open(`${url}/bozo?room=standup&t=standup-token`)
+  const rejoined = await open(bozoIn(url))
   assert.equal((await host.next()).event, 'join')
 
   rejoined.close()
@@ -344,9 +367,9 @@ test('the host dialling in drops waiting bozos so they rejoin it', async () => {
 })
 
 test('a reserved room outlives its host and takes it back', async () => {
-  const { bigtop: reserved, url } = await reservedBigtop({ standup: 'standup-token' })
-  const host = await open(`${url}/uplink?room=standup&t=standup-token`)
-  const bozo = await open(`${url}/bozo?room=standup&t=standup-token`)
+  const { bigtop: reserved, url } = await reservedBigtop({ standup: ROOM_KEY })
+  const host = await open(hostIn(url))
+  const bozo = await open(bozoIn(url))
   await host.next()
 
   const dropped = closedOf(bozo)
@@ -355,10 +378,10 @@ test('a reserved room outlives its host and takes it back', async () => {
   await dropped
   assert.ok(reserved.rooms.has('standup'))
 
-  const waiting = await open(`${url}/bozo?room=standup&t=standup-token`)
+  const waiting = await open(bozoIn(url))
   assert.deepEqual(await waiting.next(), { type: 'notice', text: 'waiting for the host to dial in' })
 
-  const back = await open(`${url}/uplink?room=standup&t=standup-token`)
+  const back = await open(hostIn(url))
   assert.deepEqual(await waiting.next(), { type: 'notice', text: 'the host is here, joining' })
 
   back.close()
@@ -366,11 +389,10 @@ test('a reserved room outlives its host and takes it back', async () => {
 })
 
 test('a reserved room still fills up at MAX_BOZOS while it waits', async () => {
-  const { bigtop: reserved, url } = await reservedBigtop({ standup: 'standup-token' })
-  const bozos = await Promise.all(
-    Array.from({ length: MAX_BOZOS }, () => open(`${url}/bozo?room=standup&t=standup-token`))
-  )
-  await assert.rejects(() => open(`${url}/bozo?room=standup&t=standup-token`))
+  const { bigtop: reserved, url } = await reservedBigtop({ standup: ROOM_KEY })
+  await visited(url)
+  const bozos = await Promise.all(Array.from({ length: MAX_BOZOS }, () => open(bozoIn(url))))
+  await assert.rejects(() => open(bozoIn(url)))
   for (const bozo of bozos) bozo.close()
   reserved.close()
 })
@@ -383,7 +405,7 @@ async function roomsFile(content: string): Promise<{ path: string; done: () => P
   return { path, done: () => rm(dir, { recursive: true, force: true }) }
 }
 
-test('a rooms file maps each room name to its token', async () => {
+test('a rooms file maps each room name to its room key', async () => {
   const file = await roomsFile(JSON.stringify({ standup: 'standup-token', 'pair.1': 'another-token' }))
   const rooms = await loadRooms(file.path)
   assert.deepEqual([...rooms], [['standup', 'standup-token'], ['pair.1', 'another-token']])
