@@ -339,7 +339,7 @@ test('a bozo is refused until a host has brought the room its token', async () =
   await assert.rejects(() => open(`${url}/bozo?room=standup&t=wrong-token`))
 
   const bozo = await open(bozoIn(url))
-  assert.deepEqual(await bozo.next(), { type: 'notice', text: 'waiting for the host to dial in' })
+  assert.deepEqual(await bozo.next(), { type: 'notice', text: 'waiting for the host to dial in', waiting: true })
 
   bozo.close()
   reserved.close()
@@ -379,7 +379,7 @@ test('a reserved room outlives its host and takes it back', async () => {
   assert.ok(reserved.rooms.has('standup'))
 
   const waiting = await open(bozoIn(url))
-  assert.deepEqual(await waiting.next(), { type: 'notice', text: 'waiting for the host to dial in' })
+  assert.deepEqual(await waiting.next(), { type: 'notice', text: 'waiting for the host to dial in', waiting: true })
 
   const back = await open(hostIn(url))
   assert.deepEqual(await waiting.next(), { type: 'notice', text: 'the host is here, joining' })

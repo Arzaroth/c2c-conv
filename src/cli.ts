@@ -471,6 +471,7 @@ async function cmdZavatta({ opts }: { opts: Options }): Promise<void> {
     process.exit(0)
   })
   link.on('reconnected', () => console.error('[c2c] back in the session'))
+  link.on('waiting', (text: string) => console.error(`[c2c] ${text}`))
 
   try {
     await link.connect()

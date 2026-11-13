@@ -107,6 +107,7 @@ export class BozoLink extends EventEmitter {
   // take the agent's tools away for good.
   #joined = false
   #ended = false
+  #waiting = false
   #retryMs = RETRY_MIN_MS
 
   constructor({ url, name = 'zavatta' }: { url: string; name?: string }) {
@@ -116,51 +117,68 @@ export class BozoLink extends EventEmitter {
   }
 
   connect(timeoutMs = 10000): Promise<this> {
-    return new Promise<this>((resolve, reject) => {
-      const socket = new WebSocket(this.#url)
-      socket.binaryType = 'arraybuffer'
-      this.#socket = socket
+    return new Promise<this>((resolve, reject) => this.#attempt(resolve, reject, timeoutMs))
+  }
 
-      const timer = setTimeout(() => reject(new Error('timed out waiting for a hoink back')), timeoutMs)
+  #attempt(resolve: (link: this) => void, reject: (err: Error) => void, timeoutMs: number): void {
+    const socket = new WebSocket(this.#url)
+    socket.binaryType = 'arraybuffer'
+    this.#socket = socket
+    this.#waiting = false
 
-      socket.addEventListener('open', () => {
-        socket.send(JSON.stringify({ type: 'hoink', name: this.#name }))
-      })
+    const timer = setTimeout(() => reject(new Error('timed out waiting for a hoink back')), timeoutMs)
 
-      // The pane byte stream is useless without a terminal emulator, so it is
-      // dropped: the screen comes from snapshots instead.
-      socket.addEventListener('message', (event) => {
-        if (typeof event.data !== 'string') return
-        let msg: ServerMessage
-        try {
-          msg = JSON.parse(event.data)
-        } catch {
-          return
-        }
-        this.#apply(msg)
-        if (msg.type === 'hoink') {
-          clearTimeout(timer)
-          this.connected = true
-          this.#joined = true
-          this.#retryMs = RETRY_MIN_MS
-          resolve(this)
-        }
-        if (msg.type === 'bye') {
-          this.#ended = true
-          this.emit('ended', msg.text)
-        }
-        this.emit('message', msg)
-      })
-
-      socket.addEventListener('close', () => {
-        this.connected = false
-        clearTimeout(timer)
-        this.emit('closed')
-        reject(new Error('connection closed before the ringmaster hoinked back'))
-        if (this.#joined && !this.#ended) this.#reconnect()
-      })
-      socket.addEventListener('error', () => {})
+    socket.addEventListener('open', () => {
+      socket.send(JSON.stringify({ type: 'hoink', name: this.#name }))
     })
+
+    // The pane byte stream is useless without a terminal emulator, so it is
+    // dropped: the screen comes from snapshots instead.
+    socket.addEventListener('message', (event) => {
+      if (typeof event.data !== 'string') return
+      let msg: ServerMessage
+      try {
+        msg = JSON.parse(event.data)
+      } catch {
+        return
+      }
+      this.#apply(msg)
+      // Waiting for the host is not a ringmaster failing to answer, so it is
+      // not on the clock.
+      if (msg.type === 'notice' && msg.waiting === true) {
+        clearTimeout(timer)
+        this.#waiting = true
+        this.emit('waiting', msg.text)
+      }
+      if (msg.type === 'hoink') {
+        clearTimeout(timer)
+        this.#waiting = false
+        this.connected = true
+        this.#joined = true
+        this.#retryMs = RETRY_MIN_MS
+        resolve(this)
+      }
+      if (msg.type === 'bye') {
+        this.#ended = true
+        this.emit('ended', msg.text)
+      }
+      this.emit('message', msg)
+    })
+
+    socket.addEventListener('close', () => {
+      this.connected = false
+      clearTimeout(timer)
+      this.emit('closed')
+      // A reserved room drops its waiting bozos when the host arrives: for a
+      // waiting link this close is the way in.
+      if (this.#waiting && !this.#ended) {
+        setTimeout(() => this.#attempt(resolve, reject, timeoutMs), RETRY_MIN_MS)
+        return
+      }
+      reject(new Error('connection closed before the ringmaster hoinked back'))
+      if (this.#joined && !this.#ended) this.#reconnect()
+    })
+    socket.addEventListener('error', () => {})
   }
 
   #reconnect(): void {
@@ -206,7 +224,8 @@ export class BozoLink extends EventEmitter {
   }
 
   #send(payload: BozoMessage): void {
-    if (this.#socket?.readyState !== WebSocket.OPEN) {
+    if (this.#waiting) throw new Error('the host is not in the room yet - waiting for them to dial in')
+    if (!this.connected || this.#socket?.readyState !== WebSocket.OPEN) {
       throw new Error(this.#joined && !this.#ended
         ? 'not connected to the session right now - reconnecting, try again in a moment'
         : 'not connected to the session')

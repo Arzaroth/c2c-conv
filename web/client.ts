@@ -406,8 +406,10 @@ function send(payload: BozoMessage): void {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload))
 }
 
-function setLink(up: boolean): void {
-  el.link.textContent = up ? 'live' : 'offline'
+const WAITING_HINT = 'The host is not here yet. You are let in as soon as they dial in.'
+
+function setLink(up: boolean, down = 'offline'): void {
+  el.link.textContent = up ? 'live' : down
   el.link.className = `badge link${up ? '' : ' down'}`
   el.send.disabled = !up
   laneLive(up)
@@ -528,9 +530,10 @@ function connect(): void {
   socket = new WebSocket(endpoint())
   socket.binaryType = 'arraybuffer'
 
+  // Live once the ringmaster has answered, not once a socket opened: on a
+  // bigtop the socket can open onto a room whose host is not there.
   socket.onopen = () => {
     retry = 500
-    setLink(true)
     hoink()
   }
 
@@ -554,6 +557,8 @@ function connect(): void {
 function handle(msg: ServerMessage): void {
   switch (msg.type) {
     case 'hoink':
+      setLink(true)
+      if (el.hint.textContent === WAITING_HINT) el.hint.textContent = ''
       paneState = msg.state ?? 'unknown'
       if (msg.name) {
         bozoName = msg.name
@@ -656,6 +661,10 @@ function handle(msg: ServerMessage): void {
       el.hint.innerHTML = `Not delivered: ${HELD[msg.state] ?? msg.state}.`
       break
     case 'notice':
+      if (msg.waiting === true) {
+        setLink(false, 'waiting')
+        el.hint.textContent = WAITING_HINT
+      }
       term.write(`\r\n\x1b[38;5;246m[c2c] ${msg.text}\x1b[39m\r\n`)
       break
     case 'bye':

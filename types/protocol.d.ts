@@ -249,7 +249,9 @@ type ServerMessage =
   // history says how much of this is above the fold, so a receiver can tell a
   // snapshot worth scrolling from one that is only ever the pane again.
   | { type: 'scrollback'; data: string; cols: number; rows: number; lines: number; history: number; alternate: boolean }
-  | { type: 'notice'; text: string }
+  // waiting: from a bigtop, a reserved room whose host has not dialled in. The
+  // socket is open but nothing is listening; it is dropped when the host comes.
+  | { type: 'notice'; text: string; waiting?: boolean }
   | { type: 'bye'; text: string }
   | { type: 'transcript'; entry: TranscriptEntry }
   | { type: 'transcript:history'; entries: TranscriptEntry[] }

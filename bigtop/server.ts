@@ -268,7 +268,7 @@ export class Bigtop {
     })
 
     if (hosted) room.host?.sendJson({ from: id, event: 'join' })
-    else ws.sendJson({ type: 'notice', text: 'waiting for the host to dial in' })
+    else ws.sendJson({ type: 'notice', text: 'waiting for the host to dial in', waiting: true })
   }
 
   #fromHost(room: Room, raw: string): void {
