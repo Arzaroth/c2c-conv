@@ -18,6 +18,19 @@ systemctl enable --now c2c-bigtop
 
 Rebuild on every update: `git pull && npm ci && npm run build && systemctl restart c2c-bigtop`.
 
+To serve only your own rooms, give the bigtop a rooms file mapping each room
+to a room key, and add `--rooms /etc/c2c-bigtop/rooms.json` to `ExecStart`.
+Create it unreadable from the start rather than tightening it afterwards:
+
+```sh
+install -d -o c2c -m700 /etc/c2c-bigtop
+install -o c2c -m600 /dev/null /etc/c2c-bigtop/rooms.json
+printf '{"standup": "%s"}\n' "$(openssl rand -hex 16)" > /etc/c2c-bigtop/rooms.json
+```
+
+Hosts claim a reserved room with `--room-key` (or `C2C_ROOM_KEY`). Adding a room
+or changing a key means restarting the bigtop; hosts reconnect on their own.
+
 Then put TLS in front of it with [Caddyfile](Caddyfile) or
 [nginx.conf](nginx.conf), and point hosts at it:
 

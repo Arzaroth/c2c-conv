@@ -152,6 +152,25 @@ reach the other. Run one anywhere with `c2c bigtop`, or
 `node dist/bigtop/server.js --port 8080`. Your bozo opens
 `https://bigtop.example.com/r/standup?t=<token>` and installs nothing.
 
+To keep a fixed address for a session that runs somewhere else, reserve its
+room on the bigtop. The rooms file maps each room to a **room key**, which only
+the host presents; the link token stays the host's own:
+
+```sh
+(umask 077; printf '{"standup": "%s"}\n' "$(openssl rand -hex 16)" > rooms.json)
+c2c bigtop --rooms rooms.json                     # on the reachable box
+
+# wherever claude runs; the key can also come from C2C_ROOM_KEY
+c2c host --bigtop wss://bigtop.example.com --room standup \
+  --room-key <the key from rooms.json> --token a-long-secret-token
+```
+
+The bigtop then serves only the rooms in the file, and nobody without the key
+can claim one, link holders included. A reserved room outlives its host: pin
+`--token` and the link never changes, and once the host has been there, bozos
+who open it while it is away wait and are let in when it comes back.
+`c2c ctl rotate` works as anywhere else.
+
 Details and wire protocol in [brain/architecture/transports.md](brain/architecture/transports.md).
 
 ## The two modes
@@ -343,7 +362,7 @@ safe. Elevate for people you would hand your actual keyboard to.
 
 | | |
 |---|---|
-| `c2c host [-s NAME] [-p PORT] [--bind ADDR] [--bigtop URL] [--room NAME] [--cwd DIR] [-- args]` | start a shared session |
+| `c2c host [-s NAME] [-p PORT] [--bind ADDR] [--bigtop URL] [--room NAME] [--room-key KEY] [--cwd DIR] [-- args]` | start a shared session |
 | `c2c attach [-s NAME]` | reattach your terminal |
 | `c2c invite [-s NAME]` | reprint the bozo instructions |
 | `c2c say <text>` | post a line to the f2f lane |
@@ -354,7 +373,7 @@ safe. Elevate for people you would hand your actual keyboard to.
 | `c2c log [-s NAME] [--f2f] [--grep TEXT] [-n N]` | what happened, kept after stop |
 | `c2c restart [-s NAME]` | a new ringmaster for the running session, same links and tunnel |
 | `c2c stop [-s NAME]` | tear it down |
-| `c2c bigtop [-p PORT] [--bind ADDR]` | run a bigtop |
+| `c2c bigtop [-p PORT] [--bind ADDR] [--rooms FILE]` | run a bigtop, optionally serving only reserved rooms |
 
 Runs on its own tmux server (`-L c2c`) with a clean config, so it will not touch
 your existing tmux - and the prefix inside a c2c session is always `C-b`, even if

@@ -9,7 +9,24 @@ than adding to it.
 
 ## [Unreleased]
 
+### Added
+
+- **Reserved bigtop rooms.** `c2c bigtop --rooms FILE` serves only the rooms in
+  a JSON file of room name to room key, and only a host presenting the key
+  (`c2c host --room-key`, or `C2C_ROOM_KEY`) can claim one. A reserved room
+  outlives its host, so a session running on one machine keeps a fixed address
+  on another: with `--token` pinned the link never changes, and bozos who open
+  it while the host is away wait and are let in when it comes back, in the
+  browser and in zavatta alike. A bigtop without the file is unchanged.
+
 ### Fixed
+
+- **A closed websocket lets go.** Closing one ended only its write side: the
+  peer could keep it open forever, still read from, outside every map and cap,
+  and a malformed frame sent after the close grew its buffer without bound. It
+  now ignores its peer and is destroyed after a short grace.
+- The browser shows the link as live once the ringmaster answers, not as soon as
+  a socket opens.
 
 - **The history follows a `/clear`.** The transcript was located once at startup
   and tailed for the life of the ringmaster. `/clear` keeps the pane, the pid

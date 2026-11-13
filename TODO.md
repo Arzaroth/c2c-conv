@@ -20,6 +20,17 @@ open-work list of its own, so there is one of it rather than two.
 
 ## Drift and small fixes
 
+- [ ] `cmdBigtop` in `src/cli.ts` and the `isMain` block in `bigtop/server.ts`
+      both resolve the rooms file, build the bigtop and print the banner, and
+      already differ (`??` against `||`). One startup function, both callers.
+- [ ] The browser resets its retry to 500ms on every open, so bozos in a
+      reserved room whose host crash-loops reconnect in lockstep at 500ms for
+      as long as it flaps. Jitter, and only reset once the ringmaster answered.
+- [ ] A browser waiting in a reserved room after its host left still shows the
+      last session's roster and outbox until the host is back.
+- [ ] Reloading the bigtop's rooms file on SIGHUP, so adding a room or changing
+      a key does not drop every other room.
+
 - [ ] `resolvePublic()` lives in `bigtop/server.ts` and is exported, but
       `src/transport/local.ts` still strips `../` prefixes - the approach
       the brain's transports doc calls guesswork next to containment being provable.
