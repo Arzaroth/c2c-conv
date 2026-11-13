@@ -178,3 +178,28 @@ test('a normal sized message is unaffected', () => {
   socket.emit('data', clientFrame(payload))
   assert.deepEqual(seen, [payload])
 })
+
+// A closed socket used to keep parsing whatever the peer sent: frames came out
+// as text with nobody tracking the socket, and a rejected one grew the buffer.
+test('a closed socket ignores what it is sent', () => {
+  const raw = new FakeSocket()
+  const ws = new WebSocket(asSocket(raw))
+  const texts: string[] = []
+  ws.on('text', (text: string) => texts.push(text))
+  ws.close()
+  raw.emit('data', clientFrame('after close'))
+  assert.deepEqual(texts, [])
+})
+
+test('a closed socket is let go even if the peer never closes its side', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const raw = new FakeSocket()
+  let destroyed = false
+  raw.destroy = () => {
+    destroyed = true
+  }
+  new WebSocket(asSocket(raw)).close()
+  assert.equal(destroyed, false)
+  t.mock.timers.tick(5000)
+  assert.equal(destroyed, true)
+})

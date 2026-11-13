@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import { createServer, type AddressInfo } from 'node:net'
 
 import { LocalTransport } from '../src/transport/local.js'
+import { BigtopTransport } from '../src/transport/bigtop.js'
+import { Bigtop } from '../bigtop/server.js'
 import { BozoLink, HISTORY_PAGE, historyPage, stripAnsi, wakes } from '../src/zavatta.js'
 
 test('screen text reaches an agent without escape sequences', () => {
@@ -153,4 +155,43 @@ test('an agent comes back after a drop and stays gone after a bye', async () => 
     agent.close()
     await ring.stop()
   }
+})
+
+// The bigtop drops waiting bozos when the host arrives so they hoink again. An
+// agent that took that drop for a failure never got in.
+test('an agent waits in a reserved room and joins when the host dials in', async (t) => {
+  const bigtop = new Bigtop({ rooms: new Map([['standup', 'standup-room-key']]) })
+  const { port } = await bigtop.listen(0, '127.0.0.1')
+  t.after(() => bigtop.close())
+  const url = `ws://127.0.0.1:${port}`
+
+  const host = () => {
+    const uplink = new BigtopTransport({ url, room: 'standup', token: 'standup-token', key: 'standup-room-key' })
+    uplink.on('bozo', (channel: Channel) => {
+      channel.on('text', () => channel.sendJson({ type: 'hoink', mode: 'gallery' } as ServerMessage))
+    })
+    return uplink
+  }
+
+  // The room learns its token from a host, so one has to have been.
+  const first = host()
+  await first.start()
+  await new Promise((r) => setTimeout(r, 100))
+  await first.stop()
+  await new Promise((r) => setTimeout(r, 100))
+
+  const agent = new BozoLink({ url: `${url}/bozo?room=standup&t=standup-token` })
+  const waiting = new Promise((r) => agent.once('waiting', r))
+  const joined = agent.connect(500)
+  await waiting
+  assert.throws(() => agent.say('anyone?'), /not in the room yet/)
+
+  // Longer than the connect timeout: waiting is off the clock.
+  await new Promise((r) => setTimeout(r, 700))
+  const second = host()
+  t.after(() => second.stop())
+  await second.start()
+  await joined
+  assert.equal(agent.connected, true)
+  agent.close()
 })

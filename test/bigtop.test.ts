@@ -1,4 +1,4 @@
-import { test, before, after } from 'node:test'
+import { test, before, after, type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { connect as netConnect } from 'node:net'
 import { randomBytes } from 'node:crypto'
@@ -289,9 +289,12 @@ const ROOM_KEY = 'standup-room-key'
 const hostIn = (url: string) => `${url}/uplink?room=standup&t=standup-token&k=${ROOM_KEY}`
 const bozoIn = (url: string) => `${url}/bozo?room=standup&t=standup-token`
 
-async function reservedBigtop(rooms: Record<string, string>): Promise<{ bigtop: Bigtop; url: string }> {
+// Closed by the test runner, so a failed assertion cannot leave a listener
+// holding the process open.
+async function reservedBigtop(t: TestContext, rooms: Record<string, string>): Promise<{ bigtop: Bigtop; url: string }> {
   const reserved = new Bigtop({ rooms: new Map(Object.entries(rooms)) })
   const address = await reserved.listen(0, '127.0.0.1')
+  t.after(() => reserved.close())
   return { bigtop: reserved, url: `ws://127.0.0.1:${address.port}` }
 }
 
@@ -315,16 +318,16 @@ async function visited(url: string): Promise<void> {
   await new Promise((r) => setTimeout(r, 20))
 }
 
-test('a bigtop with a rooms file serves no other room', async () => {
-  const { bigtop: reserved, url } = await reservedBigtop({ standup: ROOM_KEY })
+test('a bigtop with a rooms file serves no other room', async (t) => {
+  const { bigtop: reserved, url } = await reservedBigtop(t, { standup: ROOM_KEY })
   await assert.rejects(() => open(`${url}/uplink?room=squat&t=secret-token&k=${ROOM_KEY}`))
   await assert.rejects(() => open(`${url}/bozo?room=squat&t=secret-token`))
   assert.deepEqual([...reserved.rooms.keys()], ['standup'])
   reserved.close()
 })
 
-test('a reserved room refuses a host without its key', async () => {
-  const { bigtop: reserved, url } = await reservedBigtop({ standup: ROOM_KEY })
+test('a reserved room refuses a host without its key', async (t) => {
+  const { bigtop: reserved, url } = await reservedBigtop(t, { standup: ROOM_KEY })
   await assert.rejects(() => open(`${url}/uplink?room=standup&t=standup-token`))
   await assert.rejects(() => open(`${url}/uplink?room=standup&t=standup-token&k=not-the-key`))
   const host = await open(hostIn(url))
@@ -332,8 +335,8 @@ test('a reserved room refuses a host without its key', async () => {
   reserved.close()
 })
 
-test('a bozo is refused until a host has brought the room its token', async () => {
-  const { bigtop: reserved, url } = await reservedBigtop({ standup: ROOM_KEY })
+test('a bozo is refused until a host has brought the room its token', async (t) => {
+  const { bigtop: reserved, url } = await reservedBigtop(t, { standup: ROOM_KEY })
   await assert.rejects(() => open(bozoIn(url)))
   await visited(url)
   await assert.rejects(() => open(`${url}/bozo?room=standup&t=wrong-token`))
@@ -347,8 +350,8 @@ test('a bozo is refused until a host has brought the room its token', async () =
 
 // A waiting bozo already hoinked into the void, and the ringmaster answers
 // nobody who has not hoinked to it. Dropping it is what makes it say hello again.
-test('the host dialling in drops waiting bozos so they rejoin it', async () => {
-  const { bigtop: reserved, url } = await reservedBigtop({ standup: ROOM_KEY })
+test('the host dialling in drops waiting bozos so they rejoin it', async (t) => {
+  const { bigtop: reserved, url } = await reservedBigtop(t, { standup: ROOM_KEY })
   await visited(url)
   const waiting = await open(bozoIn(url))
   await waiting.next()
@@ -366,8 +369,8 @@ test('the host dialling in drops waiting bozos so they rejoin it', async () => {
   reserved.close()
 })
 
-test('a reserved room outlives its host and takes it back', async () => {
-  const { bigtop: reserved, url } = await reservedBigtop({ standup: ROOM_KEY })
+test('a reserved room outlives its host and takes it back', async (t) => {
+  const { bigtop: reserved, url } = await reservedBigtop(t, { standup: ROOM_KEY })
   const host = await open(hostIn(url))
   const bozo = await open(bozoIn(url))
   await host.next()
@@ -388,8 +391,8 @@ test('a reserved room outlives its host and takes it back', async () => {
   reserved.close()
 })
 
-test('a reserved room still fills up at MAX_BOZOS while it waits', async () => {
-  const { bigtop: reserved, url } = await reservedBigtop({ standup: ROOM_KEY })
+test('a reserved room still fills up at MAX_BOZOS while it waits', async (t) => {
+  const { bigtop: reserved, url } = await reservedBigtop(t, { standup: ROOM_KEY })
   await visited(url)
   const bozos = await Promise.all(Array.from({ length: MAX_BOZOS }, () => open(bozoIn(url))))
   await assert.rejects(() => open(bozoIn(url)))
@@ -424,4 +427,45 @@ test('a rooms file with a bad entry is refused, not partly loaded', async () => 
     await assert.rejects(() => loadRooms(file.path), content)
     await file.done()
   }
+})
+
+// The token is in every bozo's link, kicked bozos included. Holding it must not
+// be enough to stand in for a host that is away.
+test('a bozo token cannot claim the host side of a reserved room', async (t) => {
+  const { url } = await reservedBigtop(t, { standup: ROOM_KEY })
+  await visited(url)
+  await assert.rejects(() => open(`${url}/uplink?room=standup&t=standup-token`))
+  await assert.rejects(() => open(`${url}/uplink?room=standup&t=standup-token&k=standup-token`))
+})
+
+// What makes rotate work in a reserved room: the token is the host's to change.
+test('a reserved room takes the token its host brings', async (t) => {
+  const { url } = await reservedBigtop(t, { standup: ROOM_KEY })
+  await visited(url)
+  const host = await open(`${url}/uplink?room=standup&t=rotated-token&k=${ROOM_KEY}`)
+  await assert.rejects(() => open(bozoIn(url)))
+  const bozo = await open(`${url}/bozo?room=standup&t=rotated-token`)
+  assert.equal((await host.next()).event, 'join')
+  bozo.close()
+  host.close()
+})
+
+test('a rooms file that is not JSON is refused without quoting it', async () => {
+  const file = await roomsFile('{"standup": s3cr3t-key-value}')
+  await assert.rejects(() => loadRooms(file.path), (err: Error) => {
+    assert.doesNotMatch(err.message, /s3cr3t/)
+    return true
+  })
+  await file.done()
+})
+
+test('a rooms file others can read is loaded with a warning', async (t) => {
+  const file = await roomsFile(JSON.stringify({ standup: ROOM_KEY }))
+  await chmod(file.path, 0o644)
+  const warned: string[] = []
+  t.mock.method(console, 'warn', (line: string) => warned.push(line))
+  assert.equal((await loadRooms(file.path)).size, 1)
+  assert.equal(warned.length, 1)
+  assert.match(warned[0], /readable by others/)
+  await file.done()
 })
