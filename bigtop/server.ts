@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
-import { readFile } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import { randomBytes } from 'node:crypto'
 import { extname, resolve, sep } from 'node:path'
 import type { AddressInfo } from 'node:net'
@@ -31,11 +31,13 @@ const MIN_TOKEN = 8
 const ROOM_NAME = /^[\w.-]+$/
 
 // A room: whoever claimed it, the token they fixed it with, and everyone
-// currently riding along.
+// currently riding along. A reserved room comes from the rooms file: its token
+// is the operator's, it outlives its host, and bozos may wait in it.
 interface Room {
   token: string
   bozos: Map<string, WebSocket>
   host: WebSocket | null
+  reserved: boolean
 }
 
 function validRoom(room: unknown): room is string {
@@ -68,14 +70,37 @@ function heartbeat(ws: WebSocket, intervalMs = HEARTBEAT_MS): NodeJS.Timeout {
   return timer
 }
 
+export async function loadRooms(path: string): Promise<Map<string, string>> {
+  const parsed: unknown = JSON.parse(await readFile(path, 'utf8'))
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`${path}: expected an object of room name to token`)
+  }
+  const rooms = new Map<string, string>()
+  for (const [name, token] of Object.entries(parsed)) {
+    if (!validRoom(name)) throw new Error(`${path}: bad room name ${JSON.stringify(name)}`)
+    if (!validToken(token)) throw new Error(`${path}: the token for ${name} must be 8 to 256 characters`)
+    rooms.set(name, token)
+  }
+  if (!rooms.size) throw new Error(`${path}: no rooms`)
+  if ((await stat(path)).mode & 0o077) {
+    console.warn(`c2c bigtop: ${path} is readable by others, and it holds every room's token`)
+  }
+  return rooms
+}
+
 export class Bigtop {
   readonly heartbeatMs: number
 
   #rooms = new Map<string, Room>()
   #server: Server | null = null
+  #closed: boolean
 
-  constructor({ heartbeatMs = HEARTBEAT_MS }: { heartbeatMs?: number } = {}) {
+  constructor({ heartbeatMs = HEARTBEAT_MS, rooms }: { heartbeatMs?: number; rooms?: Map<string, string> } = {}) {
     this.heartbeatMs = heartbeatMs
+    this.#closed = rooms !== undefined
+    for (const [name, token] of rooms ?? []) {
+      this.#rooms.set(name, { token, bozos: new Map(), host: null, reserved: true })
+    }
   }
 
   get rooms(): Map<string, Room> {
@@ -150,6 +175,7 @@ export class Bigtop {
   #acceptHost(req: IncomingMessage, socket: Duplex, roomId: string, token: string): void {
     const existing = this.#rooms.get(roomId)
 
+    if (!existing && this.#closed) return reject(socket, 404, 'no such room')
     // A room is claimed by the first host and its token is fixed at that point,
     // so a second host cannot take the room over or probe for the secret.
     if (existing?.host && !existing.host.closed) {
@@ -165,7 +191,7 @@ export class Bigtop {
     const ws = handshake(req, socket)
     if (!ws) return
 
-    const room = existing ?? { token, bozos: new Map(), host: null }
+    const room = existing ?? { token, bozos: new Map(), host: null, reserved: false }
     room.host = ws
     this.#rooms.set(roomId, room)
     heartbeat(ws, this.heartbeatMs)
@@ -177,23 +203,32 @@ export class Bigtop {
       }
     })
     ws.on('close', () => {
+      if (room.host !== ws) return
       for (const bozo of room.bozos.values()) {
         bozo.sendJson({ type: 'notice', text: 'host disconnected' })
         bozo.close()
       }
       room.bozos.clear()
       room.host = null
-      this.#rooms.delete(roomId)
+      if (!room.reserved) this.#rooms.delete(roomId)
     })
 
-    for (const [id, bozo] of room.bozos) {
-      if (!bozo.closed) ws.sendJson({ from: id, event: 'join' })
+    // A bozo only gets an answer from the ringmaster by hoinking, and whatever
+    // a waiting bozo said went nowhere. Dropping it makes the client reconnect
+    // and hoink to the host that is now here.
+    const waiting = [...room.bozos.values()]
+    room.bozos.clear()
+    for (const bozo of waiting) {
+      bozo.sendJson({ type: 'notice', text: 'the host is here, joining' })
+      bozo.close()
     }
   }
 
   #acceptGuest(req: IncomingMessage, socket: Duplex, roomId: string, token: string): void {
     const room = this.#rooms.get(roomId)
-    if (!room || !room.host || room.host.closed) return reject(socket, 404, 'no host in this room')
+    if (!room) return reject(socket, 404, this.#closed ? 'no such room' : 'no host in this room')
+    const hosted = room.host !== null && !room.host.closed
+    if (!hosted && !room.reserved) return reject(socket, 404, 'no host in this room')
     if (!timingSafeEqualString(token, room.token)) return reject(socket, 401, 'bad token')
     if (room.bozos.size >= MAX_BOZOS) return reject(socket, 429, 'the clown car is full')
 
@@ -214,11 +249,11 @@ export class Bigtop {
       room.host?.sendJson({ from: id, event: 'message', payload })
     })
     ws.on('close', () => {
-      room.bozos.delete(id)
-      room.host?.sendJson({ from: id, event: 'leave' })
+      if (room.bozos.delete(id)) room.host?.sendJson({ from: id, event: 'leave' })
     })
 
-    room.host.sendJson({ from: id, event: 'join' })
+    if (hosted) room.host?.sendJson({ from: id, event: 'join' })
+    else ws.sendJson({ type: 'notice', text: 'waiting for the host to dial in' })
   }
 
   #fromHost(room: Room, raw: string): void {
@@ -251,6 +286,10 @@ export function resolvePublic(file: string, root: string = WEB_ROOT): string | n
   return target
 }
 
+export function describeRooms(rooms: Map<string, string> | undefined): string {
+  return rooms ? `, serving only ${[...rooms.keys()].join(', ')}` : ''
+}
+
 function reject(socket: Duplex, code: number, message: string): void {
   socket.write(`HTTP/1.1 ${code} ${message}\r\n\r\n`)
   socket.destroy()
@@ -267,10 +306,12 @@ if (isMain) {
 
   const port = Number(get('--port', process.env.PORT || '8080'))
   const host = get('--bind', process.env.BIND || '0.0.0.0')
+  const roomsFile = get('--rooms', process.env.C2C_BIGTOP_ROOMS || '')
 
-  const bigtop = new Bigtop()
+  const rooms = roomsFile ? await loadRooms(roomsFile) : undefined
+  const bigtop = new Bigtop({ rooms })
   const address = await bigtop.listen(port, host)
-  console.log(`c2c bigtop listening on ${address.address}:${address.port}`)
+  console.log(`c2c bigtop listening on ${address.address}:${address.port}${describeRooms(rooms)}`)
 
   const shutdown = () => {
     bigtop.close()

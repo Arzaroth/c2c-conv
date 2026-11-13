@@ -36,6 +36,7 @@ interface Options {
   bigtop?: string
   room?: string
   token?: string
+  rooms?: string
   url?: string
   name?: string
   outbox?: string
@@ -68,6 +69,7 @@ function parseArgs(argv: string[]): { opts: Options; rest: string[]; passthrough
     else if (arg === '--bigtop' || arg === '--broker') opts.bigtop = argv[++i]
     else if (arg === '--room') opts.room = argv[++i]
     else if (arg === '--token') opts.token = argv[++i]
+    else if (arg === '--rooms') opts.rooms = argv[++i]
     else if (arg === '--url') opts.url = argv[++i]
     else if (arg === '--name') opts.name = argv[++i]
     else if (arg === '--outbox') opts.outbox = argv[++i]
@@ -474,10 +476,12 @@ async function cmdZavatta({ opts }: { opts: Options }): Promise<void> {
 }
 
 async function cmdBigtop({ opts }: { opts: Options }): Promise<void> {
-  const { Bigtop } = await import('../bigtop/server.js')
-  const bigtop = new Bigtop()
+  const { Bigtop, describeRooms, loadRooms } = await import('../bigtop/server.js')
+  const roomsFile = opts.rooms ?? process.env.C2C_BIGTOP_ROOMS
+  const rooms = roomsFile ? await loadRooms(roomsFile) : undefined
+  const bigtop = new Bigtop({ rooms })
   const address = await bigtop.listen(opts.port === DEFAULTS.port ? 8080 : opts.port, opts.host)
-  console.log(`c2c bigtop listening on ${address.address}:${address.port}`)
+  console.log(`c2c bigtop listening on ${address.address}:${address.port}${describeRooms(rooms)}`)
   await new Promise(() => {})
 }
 
@@ -786,7 +790,7 @@ usage:
                    what happened: the lane, who sent what, releases, keys, joins
   c2c stop [-s NAME]
   c2c version | --version
-  c2c bigtop [-p PORT] [--bind ADDR]
+  c2c bigtop [-p PORT] [--bind ADDR] [--rooms FILE]
   c2c zavatta [-s NAME] [--url URL] [--name WHO]  join a session as an AI bozo (MCP)
 
 who may send:
@@ -803,6 +807,10 @@ transports:
   --bind ADDR      serve a LAN or tailnet address directly
   --bigtop URL     dial out to a bigtop, works through NAT both ends
   --tunnel         public URL via cloudflared, nothing to deploy or forward
+
+a bigtop:
+  --rooms FILE     serve only the rooms in FILE ({"room": "token"}); each one
+                   outlives its host, and bozos wait in it for the host to dial in
 
 state lives in ${stateDir('<session>')}`)
 }
