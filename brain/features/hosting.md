@@ -1,7 +1,7 @@
 # Hosting a session
 
 ```sh
-c2c host [-s NAME] [-p PORT] [--bind ADDR] [--tunnel] [--bigtop URL] [--room NAME]
+c2c host [-s NAME] [-p PORT] [--bind ADDR] [--tunnel] [--bigtop URL] [--room NAME] [--room-key KEY]
          [--token SECRET] [--mode gallery|yolo] [--yolo] [--outbox drain|through]
          [--no-attach] [--cwd DIR] [-- claude args...]
 ```
@@ -31,7 +31,7 @@ Other commands:
 | `c2c log [-s NAME] [--f2f] [--grep TEXT] [-n N]` | what happened, from the [ledger](ledger.md), during or after the session |
 | `c2c restart [-s NAME]` | a new ringmaster for the running session, same links and tunnel, see [restart.md](restart.md) |
 | `c2c stop [-s NAME]` | tear it down, including a cloudflared a crashed ringmaster left behind |
-| `c2c bigtop [-p PORT] [--bind ADDR]` | run a bigtop (alias `broker`) |
+| `c2c bigtop [-p PORT] [--bind ADDR] [--rooms FILE]` | run a bigtop (alias `broker`); `--rooms` serves only the reserved rooms in FILE |
 | `c2c zavatta` / `c2c mcp` | the MCP bozo, see [zavatta.md](zavatta.md) |
 | `c2c --version` | package version and git revision, `-dirty` if the checkout has changes |
 

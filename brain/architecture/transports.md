@@ -107,11 +107,46 @@ there is exactly one client.
   `BigtopTransport` probes `/healthz` once per outage and logs what it finds
   (`ECONNREFUSED`, `UNABLE_TO_GET_ISSUER_CERT_LOCALLY`, `ENOTFOUND`).
 
+### Reserved rooms
+
+`c2c bigtop --rooms FILE` (or `C2C_BIGTOP_ROOMS`) reads a JSON object of room
+name to **room key**. With a rooms file the bigtop is closed: it serves those
+rooms and nothing else (404 `no such room`). A bad entry (name, key length, an
+empty file, not JSON) refuses the whole file without quoting it, and a file
+readable by group or others is warned about, since it holds every key.
+
+A reserved room exists from startup and is never deleted:
+
+- **Only the key claims it.** The host presents it as `k=` on the uplink
+  (`c2c host --room-key`, or `C2C_ROOM_KEY`, carried through the restart
+  snapshot); anything else is 401 `bad room key`. The token cannot double as
+  the host's credential: every bozo holds it, and in a room that outlives its
+  host any of them could otherwise stand in for it while it is away.
+- **The token is the host's.** The room takes whatever token its host brings
+  on each claim, as an ad-hoc room does, so `c2c ctl rotate` works unchanged
+  and `--token` pins the link. Until a host has come since the bigtop started
+  the room has no token, and bozos are refused (404) as in an empty ad-hoc room.
+- **Bozos wait in it.** Once it has a token, a bozo holding it may connect
+  while the host is away and gets `{"type":"notice","waiting":true}`. The web
+  client shows the link as waiting rather than live (live means the ringmaster
+  answered a hoink), and zavatta stops its connect timeout.
+- **The host's arrival drops them.** Every waiting bozo is told `the host is
+  here, joining` and closed, and reconnects 500ms later to hoink: the
+  ringmaster answers nobody who has not hoinked to it, and whatever a waiting
+  bozo said went nowhere. Zavatta treats that close as its way in rather than a
+  failure. The map is cleared before the sockets close (see `CLAUDE.md`, The
+  wire).
+- **The host's departure** gives its bozos `host disconnected` and drops them
+  as before; they reconnect and wait.
+
+Without a rooms file every room is ad hoc, claimed by its first host, exactly
+as above.
+
 ### Limits
 
 | | |
 |---|---|
-| rooms | 64 (claiming one costs a stranger nothing) |
+| rooms | 64 ad hoc (claiming one costs a stranger nothing); reserved rooms are the operator's and uncapped |
 | bozos per room | 30 |
 | room name | 64 chars, `[\w.-]` only |
 | token | 8 to 256 chars (`c2c host` refuses a short `--token` for the same reason) |
@@ -123,7 +158,7 @@ cleartext: run it on a machine you control, behind TLS. Deployment:
 
 ## Sources
 
-- `src/transport/local.ts`, `src/transport/bigtop.ts`, `bigtop/server.ts`
+- `src/transport/local.ts`, `src/transport/bigtop.ts`, `bigtop/server.ts` (`loadRooms`, `Room`)
 - `src/tunnel.ts` (`resolveCloudflared`, `parseTunnelUrl`, `adopt`, `release`, `isTunnelFor`)
 - `src/cli.ts` (`printInvite`, `tailscaleAddress`, `reachableAddresses`)
 - `types/protocol.d.ts` (`Transport`, `Channel`, `UplinkFrame`, `DownlinkFrame`)

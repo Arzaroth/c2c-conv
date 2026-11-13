@@ -71,6 +71,10 @@ parts were tested against a real proxy. Rebuild on every update:
 `git pull && pnpm install --frozen-lockfile && pnpm run build && systemctl restart c2c-bigtop`
 (`deploy/README.md` still says `npm ci`, which fails without a
 `package-lock.json`; see `TODO.md`).
+To serve only your own rooms, add `--rooms /etc/c2c-bigtop/rooms.json` to
+`ExecStart`: a JSON object of room name to room key, owned by the `c2c` user
+and created at mode 0600 (`deploy/README.md`). Adding a room or changing a key
+means restarting the bigtop; hosts and bozos reconnect on their own.
 `GET /healthz` answers `{"ok":true,"rooms":N}`. Protocol and limits:
 [architecture/transports.md](architecture/transports.md#the-bigtop).
 

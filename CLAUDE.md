@@ -104,6 +104,16 @@ bigtop passes bozo traffic through unchanged; there is one client. Old spellings
 `ALIASES` (`src/policy.ts`) and are duplicated in `MODE_ALIASES` (`src/cli.ts`);
 a new spelling goes in both until they are merged.
 
+`src/ws.ts` fires `close` synchronously inside `close()`. Anything that closes
+sockets it is iterating takes them out of its map first: the bigtop once
+reported waiting bozos it was dropping to the host that had just arrived, as a
+`leave` for someone who never joined. `the host dialling in drops waiting bozos
+so they rejoin it` (`test/bigtop.test.ts`) asserts the host sees a `join` next.
+
+A reserved bigtop room's host side is claimed with the room key, never the
+token: every bozo holds the token, and the room outlives its host.
+`a bozo token cannot claim the host side of a reserved room` asserts it.
+
 ## No runtime dependencies
 
 Everything in `package.json` is a dev dependency, the websocket is hand-rolled in

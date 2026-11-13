@@ -109,6 +109,25 @@ inlines xterm. A built checkout runs with nothing installed and a bozo's browser
 loads nothing from a CDN. Chosen over `ws` and a CDN-hosted xterm for supply
 chain surface and for a bigtop that deploys with no `node_modules`.
 
+### 0016 A reserved room is claimed with its own key
+
+A reserved room outlives its host, so it spends time with nobody holding the
+host side, and whoever presents the right credential then gets it. The bozo
+token cannot be that credential: every invitee holds it, a kicked one included.
+The rooms file holds a room key the host alone presents; the token stays the
+host's, taken on each claim as in an ad-hoc room.
+
+- **Rejected: the token in the rooms file.** The first cut. Any bozo could
+  claim the room while its host was away and take every hoink, whiteface
+  secret included. It also froze the token at the operator's, so rotate needed
+  a refusal, an explicit-token variant and a frame telling the ringmaster the
+  room was reserved, all wrong whenever that frame had not arrived yet.
+- **Rejected: replaying a waiting bozo's hoink.** The bigtop would have to know
+  the protocol it otherwise only relays. Dropping waiting bozos when the host
+  arrives lets the client's ordinary reconnect hoink instead.
+- **A rooms file closes the bigtop.** Leaving ad-hoc claims open beside the
+  reserved rooms would keep exactly the hole the file exists to close.
+
 ## Trust and control
 
 ### 0008 The whiteface holds a separate secret

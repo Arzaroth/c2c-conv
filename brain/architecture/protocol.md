@@ -15,6 +15,11 @@ fragments that only exceed the cap once reassembled all close the connection.
 Verified against a live ringmaster with a declared 4GiB frame: connection
 closed, resident memory unchanged.
 
+A closed socket ignores what its peer sends, drops its buffers, and is destroyed
+`CLOSE_GRACE_MS` (2s) after the close frame. Ending only the write side used to
+leave a peer that never closed its own holding the socket indefinitely, still
+parsed, outside every map and cap.
+
 ## Messages
 
 Every wire type is declared once in `types/protocol.d.ts`, ambient, shared by
@@ -54,7 +59,7 @@ every field is checked again at runtime.
 | `transcript`, `transcript:history` | [history](../features/history.md) entries |
 | `scrollback` | the requested snapshot |
 | `control` | a whiteface command's reply, carrying the dispatcher's own reply shape |
-| `whiteface:refused`, `notice`, `bye` | role refused, informational line, you are being disconnected and why |
+| `whiteface:refused`, `notice`, `bye` | role refused, informational line (`waiting: true` from a bigtop: a reserved room whose host is away), you are being disconnected and why |
 
 Whole-list messages (`outbox`, `roster`) are sent whole every time: at most
 fifty or thirty short rows, and a list that disagrees with the host's is worse

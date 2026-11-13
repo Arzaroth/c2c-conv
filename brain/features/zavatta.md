@@ -38,7 +38,10 @@ its own messages would collapse the gate
 - It strips ANSI before handing anything over, the scrollback included.
 - **It reconnects.** A dropped socket is a ringmaster restarting as often as a
   session ending ([restart.md](restart.md)), so it retries with backoff (0.5s to
-  8s) and exits only on a `bye`. A tool called in the gap says so.
+  8s) and exits only on a `bye`. A tool called in the gap says so. In a
+  reserved bigtop room it waits for the host off the clock, and takes the drop
+  when the host arrives as its way in
+  ([../architecture/transports.md](../architecture/transports.md#reserved-rooms)).
 - **It says how much there is.** A history page opens with `turns 481-500 of
   500` and where the older ones start; agents given a bare last-20 did not know
   there was more. Numbers count from the oldest turn the ringmaster still holds

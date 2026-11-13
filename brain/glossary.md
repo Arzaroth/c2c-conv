@@ -66,6 +66,12 @@ Vocabulary owned by the tools underneath is deliberately left alone.
 - **transcript** - Claude Code's session JSONL under `~/.claude/projects/`.
   [features/history.md](features/history.md).
 - **uplink** - the single websocket from a ringmaster to a bigtop.
+- **reserved room** - a bigtop room listed in its rooms file: only a host with
+  its room key claims it, it outlives its host, and bozos wait in it.
+  [architecture/transports.md](architecture/transports.md#reserved-rooms).
+  Avoid: static room, permanent room.
+- **room key** - the secret a host presents to claim a reserved room; never in
+  a bozo link. Avoid: host token, room password.
 - **channel** - one bozo's connection as the ringmaster sees it, whichever
   transport carries it (`Channel` in `types/protocol.d.ts`).
 - **frame** - a websocket frame. [architecture/protocol.md](architecture/protocol.md).

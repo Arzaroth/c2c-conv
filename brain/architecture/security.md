@@ -5,6 +5,12 @@
 - **The bozo token** in the URL (`t=`) is the only credential for watching and
   talking. 16 random bytes per session unless `--token` pins one (minimum 8
   chars). Compared in constant time (`src/secret.ts`) by both transports.
+- **A room key** claims a reserved bigtop room's host side, and only that. It
+  lives in the bigtop's rooms file and with the host (`--room-key`,
+  `C2C_ROOM_KEY`, `snapshot.json`), never in a bozo link. A room's name is not
+  a secret: a closed bigtop answers 404 for a room it does not serve and 401
+  for a wrong key, so names can be probed but not claimed
+  ([transports.md](transports.md#reserved-rooms)).
 - **The whiteface token** (`w=`) is a second, separate secret, minted only for a
   detached session. Leaking the share link must not hand over control
   ([../features/whiteface.md](../features/whiteface.md)).

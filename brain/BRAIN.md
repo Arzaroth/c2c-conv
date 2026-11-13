@@ -43,7 +43,7 @@ use the indexes.
 | [screen.md](architecture/screen.md) | Reading the pane: `classifyScreen`, `readPromptBox`, ghost suggestions, the injection guard. |
 | [gate.md](architecture/gate.md) | `Policy` and `Outbox`: who may send what, and when it lands. |
 | [protocol.md](architecture/protocol.md) | The hand-rolled websocket, the bozo message vocabulary, the control dispatcher, limits. |
-| [transports.md](architecture/transports.md) | Loopback, `--bind`, `--tunnel`, the bigtop and its uplink protocol. |
+| [transports.md](architecture/transports.md) | Loopback, `--bind`, `--tunnel`, the bigtop and its uplink protocol, reserved rooms. |
 | [security.md](architecture/security.md) | Tokens, the state dir, what each mode can do, rotate and kick. |
 | [testing.md](architecture/testing.md) | The unit suite, the real-tmux integration test, CI. |
 
@@ -81,6 +81,7 @@ use the indexes.
 | How does a headless host approve anything? | [features/whiteface.md](features/whiteface.md) |
 | How do I share with someone outside my network? | [architecture/transports.md](architecture/transports.md) |
 | What crosses the bigtop, and what does it see? | [architecture/transports.md](architecture/transports.md#the-bigtop) |
+| How does a session on one machine keep a fixed address on another? | [architecture/transports.md](architecture/transports.md#reserved-rooms) |
 | What message types exist, and where are they declared? | [architecture/protocol.md](architecture/protocol.md) |
 | How many bozos, how long a message, how big a frame? | [architecture/protocol.md](architecture/protocol.md#limits) |
 | What can a bozo in yolo do to my machine? | [architecture/security.md](architecture/security.md) |
