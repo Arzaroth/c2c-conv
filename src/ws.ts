@@ -15,6 +15,10 @@ const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 // frame ends the connection instead.
 export const MAX_MESSAGE = 1024 * 1024
 
+// A close frame is sent and the write side ended, but a peer that never ends its
+// own side would hold the socket open: still readable, in no map, under no cap.
+const CLOSE_GRACE_MS = 2000
+
 const TEXT = 0x1
 const BINARY = 0x2
 const CLOSE = 0x8
@@ -82,6 +86,9 @@ export class WebSocket extends EventEmitter {
     if (this.#closed) return
     this.#send(Buffer.alloc(0), CLOSE)
     this.#socket.end()
+    this.#buffer = Buffer.alloc(0)
+    this.#fragments = []
+    setTimeout(() => this.#socket.destroy(), CLOSE_GRACE_MS).unref()
     this.#finish()
   }
 
@@ -112,6 +119,7 @@ export class WebSocket extends EventEmitter {
   }
 
   #feed(chunk: Buffer): void {
+    if (this.#closed) return
     this.#buffer = this.#buffer.length ? Buffer.concat([this.#buffer, chunk]) : chunk
     // Covers a peer that dribbles bytes towards an oversized frame it declared.
     if (this.#buffer.length > MAX_MESSAGE + 1024) {

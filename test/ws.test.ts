@@ -14,6 +14,9 @@ class FakeSocket extends EventEmitter {
   end() {
     this.destroyed = true
   }
+  destroy() {
+    this.destroyed = true
+  }
 }
 
 // The socket only ever touches four members of a real one, so the double is a
