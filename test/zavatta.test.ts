@@ -5,7 +5,7 @@ import { createServer, type AddressInfo } from 'node:net'
 import { LocalTransport } from '../src/transport/local.js'
 import { BigtopTransport } from '../src/transport/bigtop.js'
 import { Bigtop } from '../bigtop/server.js'
-import { BozoLink, HISTORY_PAGE, historyPage, stripAnsi, wakes } from '../src/zavatta.js'
+import { BozoLink, FULL_SCREEN_NOTE, HISTORY_PAGE, historyPage, stripAnsi, wakes } from '../src/zavatta.js'
 
 test('screen text reaches an agent without escape sequences', () => {
   const raw = '\x1b[1m\x1b[38;5;220mClaude Code\x1b[39m\x1b[22m v2.1.251'
@@ -194,4 +194,34 @@ test('an agent waits in a reserved room and joins when the host dials in', async
   await joined
   assert.equal(agent.connected, true)
   agent.close()
+})
+
+// claude's pane is full screen, and tmux keeps nothing above it. An agent asking
+// for what scrolled off has to be told there is none, not handed the screen.
+test('scrollback says when a full-screen pane kept no history', async (t) => {
+  const port = await freePort()
+  const ring = new LocalTransport({ port, host: '127.0.0.1', token: 'scroll-token' })
+  let alternate = true
+  ring.on('bozo', (channel: Channel) => {
+    channel.on('text', (raw: string) => {
+      const msg = JSON.parse(raw)
+      if (msg.type === 'hoink') channel.sendJson({ type: 'hoink', mode: 'gallery' } as ServerMessage)
+      if (msg.type === 'scrollback') {
+        channel.sendJson({
+          type: 'scrollback', data: 'on screen', cols: 80, rows: 24, lines: 500,
+          history: alternate ? 0 : 12, alternate,
+        } as ServerMessage)
+      }
+    })
+  })
+  await ring.start()
+  t.after(() => ring.stop())
+
+  const agent = new BozoLink({ url: `ws://127.0.0.1:${port}/?t=scroll-token` })
+  await agent.connect()
+  t.after(() => agent.close())
+
+  assert.equal(await agent.scrollback(500), `${FULL_SCREEN_NOTE}\n\non screen`)
+  alternate = false
+  assert.equal(await agent.scrollback(500), 'on screen')
 })
