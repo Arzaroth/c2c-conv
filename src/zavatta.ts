@@ -254,7 +254,11 @@ export class BozoLink extends EventEmitter {
     const settled = this.#await(['scrollback'])
     this.#send({ type: 'scrollback', lines })
     const answer = await settled
-    return answer.type === 'scrollback' ? stripAnsi(answer.data).replace(/[ \t]+$/gm, '') : ''
+    if (answer.type !== 'scrollback') return ''
+    const text = stripAnsi(answer.data).replace(/[ \t]+$/gm, '')
+    // claude draws full screen, and tmux keeps no history for that, so an agent
+    // asking for what scrolled off would otherwise take the screen for all of it.
+    return answer.alternate && answer.history === 0 ? `${FULL_SCREEN_NOTE}\n\n${text}` : text
   }
 
   async refresh(): Promise<string> {
@@ -325,6 +329,9 @@ export class BozoLink extends EventEmitter {
   }
 }
 
+export const FULL_SCREEN_NOTE =
+  '(a full-screen pane keeps no history: this is only what is on screen now. The conversation is in c2c_history.)'
+
 const TOOLS = [
   {
     name: 'c2c_screen',
@@ -335,7 +342,7 @@ const TOOLS = [
   {
     name: 'c2c_scrollback',
     description:
-      'The session screen plus what scrolled off the top of it, as plain text: tool output, diffs, errors. The terminal-side view; c2c_history is the readable conversation.',
+      'The session screen plus what scrolled off the top of it, as plain text: tool output, diffs, errors. A full-screen program such as claude keeps no history, and then this is only the screen and says so. c2c_history is the readable conversation.',
     inputSchema: {
       type: 'object',
       properties: {
