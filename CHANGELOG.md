@@ -9,6 +9,8 @@ than adding to it.
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-11-13
+
 ### Added
 
 - **Reserved bigtop rooms.** `c2c bigtop --rooms FILE` serves only the rooms in
