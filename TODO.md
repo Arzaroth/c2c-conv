@@ -1,10 +1,15 @@
 # TODO
 
 What is left, and why each thing is worth doing. Grounded in the code as it
-stands at v0.3.5: the architecture is finished for what it does, so almost
+stands at v0.3.6: the architecture is finished for what it does, so almost
 nothing here is plumbing.
 
-Done in v0.3.5: the ledger and `c2c log`, a SQLite record of the lane, the gate
+Done in v0.3.6: reserved bigtop rooms, so a session running on one machine
+keeps a fixed address on another, claimed only with its room key and waited in
+while the host is away; a closed websocket that lets go of its peer; the history
+following a `/clear`; a message that never went in no longer reported as sent;
+and the scrollback, in the tab and for agents, saying when a full-screen pane
+kept none. Done in v0.3.5: the ledger and `c2c log`, a SQLite record of the lane, the gate
 and the outbox kept after stop; `c2c restart`, a new ringmaster for a running
 session with the links, the tunnel, the lane and both queues kept; zavatta's
 `c2c_scrollback` and paged `c2c_history`; a one-line answer no longer hides the

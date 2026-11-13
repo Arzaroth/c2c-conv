@@ -19,7 +19,7 @@ loopback; `--url wss://.../bozo?room=...&t=...` points it at a remote session.
 | tool | |
 |---|---|
 | `c2c_screen` | the session right now, as plain text: only what fits on screen |
-| `c2c_scrollback` | the screen plus what scrolled off it, as plain text (`lines`, default 500, capped at tmux's 10000) |
+| `c2c_scrollback` | the screen plus what scrolled off it, as plain text (`lines`, default 500, capped at tmux's 10000). A full-screen pane keeps none, and the answer opens with `FULL_SCREEN_NOTE` saying so |
 | `c2c_history` | the conversation, including turns from before it joined: numbered, a page of `limit` (default 20), `before` pages back |
 | `c2c_status` | mode, pane state, its own messages still held or in the outbox, and who else is in the circus |
 | `c2c_send` | text for the session, through the gate |

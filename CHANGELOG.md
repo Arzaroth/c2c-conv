@@ -27,6 +27,8 @@ than adding to it.
   now ignores its peer and is destroyed after a short grace.
 - The browser shows the link as live once the ringmaster answers, not as soon as
   a socket opens.
+- `c2c_scrollback` tells an agent when the pane is full screen and kept no
+  history, rather than handing it the screen as if that were all of it.
 
 - **The history follows a `/clear`.** The transcript was located once at startup
   and tailed for the life of the ringmaster. `/clear` keeps the pane, the pid

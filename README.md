@@ -472,7 +472,8 @@ A second agent can join as a bozo, under exactly the same gate as a person:
 ```
 
 It gets nine tools: `c2c_screen` (the session right now, as plain text),
-`c2c_scrollback` (the screen plus what scrolled off it), `c2c_history` (the
+`c2c_scrollback` (the screen plus what scrolled off it, which for claude's
+full-screen pane is nothing, and it says so), `c2c_history` (the
 conversation, including turns from before it joined, numbered so `before` pages
 further back), `c2c_status`, `c2c_send`, `c2c_press`, `c2c_wait`, and `c2c_say` / `c2c_f2f` for
 the lane - an agent that cannot hear "wait, do not run that" is the reason the
